@@ -231,7 +231,25 @@
 .\gradlew.bat build -PconfigScreen
 ```
 
-环境：JDK 25、Minecraft 26.1.2、Fabric Loader 0.19.5、Loom 1.17-SNAPSHOT。26.1 起 Minecraft 不再混淆，构建不做 remap，Fabric API / YACL / Mod Menu 默认只是 `compileOnly`。
+环境：JDK 25、Minecraft 26.1.2、Fabric Loader 0.19.5、Loom 1.17-SNAPSHOT（Gradle 9.5.1）。26.1 起 Minecraft 不再混淆，构建不做 remap，Fabric API / YACL / Mod Menu 默认只是 `compileOnly`。
+
+### 自动构建与发布
+
+仓库带两个 GitHub Actions 工作流：
+
+| 工作流 | 触发 | 做什么 |
+|---|---|---|
+| `build.yml` | 推送到 main、PR、手动 | 编译并上传 `build/libs/*.jar` 为构建产物 |
+| `release.yml` | 推送 `v*` 标签、手动 | 编译并在 GitHub Release 上附上 jar，自动生成发布说明 |
+
+发布时改版本号只需推一个标签，jar 名和 `fabric.mod.json` 里的版本号都会跟着走：
+
+```powershell
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+也可以在 Actions 页面手动运行 `Release`，填一个版本号（如 `1.1.0`），它会自己创建 `v1.1.0` 标签和 Release。手动运行还能勾选 prerelease。不填版本号则用 `gradle.properties` 里的 `version`。
 
 ---
 

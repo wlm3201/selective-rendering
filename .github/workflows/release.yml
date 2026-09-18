@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, such as 1.2.3. Leave empty to use the one in gradle.properties.'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark the release as a prerelease'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Make the wrapper executable
+        run: chmod +x ./gradlew
+
+      # Where the version comes from: what the run was started with, else the tag it was pushed
+      # on with its v taken off, else whatever gradle.properties already says. It has to end up
+      # with something either way, because the tag this release is made under is named after it.
+      # Taken through the environment rather than written into the script, so an input cannot
+      # become part of it.
+      - name: Resolve the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          value=""
+
+          if [ -n "${INPUT_VERSION}" ]; then
+            value="${INPUT_VERSION}"
+          elif [ "${REF_TYPE}" = "tag" ]; then
+            value="${REF_NAME#v}"
+          else
+            # tr is for a gradle.properties that was committed with Windows line endings, which
+            # would otherwise leave a carriage return on the end of the version.
+            value="$(sed -n 's/^version=//p' gradle.properties | head -n 1 | tr -d '\r')"
+          fi
+
+          if [ -z "${value}" ]; then
+            echo "Could not work out a version to release" >&2
+            exit 1
+          fi
+
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${value}"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: ./gradlew build --stacktrace -Pversion="${VERSION}"
+
+      # The mod jar and its sources, and not the unmapped one the build leaves beside them, which
+      # is not what a player installs. Collected here rather than matched by a glob at the upload,
+      # so a jar that should not be released cannot quietly go out with the ones that should.
+      - name: Collect the jars
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifacts
+          found=0
+
+          for jar in build/libs/*.jar; do
+            [ -e "${jar}" ] || continue
+
+            case "$(basename "${jar}")" in
+              *-dev.jar|*-unmapped.jar) continue ;;
+            esac
+
+            cp "${jar}" artifacts/
+            found=1
+          done
+
+          if [ "${found}" -eq 0 ]; then
+            echo "No jars in build/libs to release" >&2
+            exit 1
+          fi
+
+          ls -l artifacts
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.value) }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.value) }}
+          files: artifacts/*.jar
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
