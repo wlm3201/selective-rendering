@@ -1,0 +1,76 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	maven {
+		name = 'Fabric'
+		url = 'https://maven.fabricmc.net/'
+	}
+	maven {
+		name = 'Terraformers'
+		url = 'https://maven.terraformersmc.com/'
+	}
+	maven {
+		name = 'Modrinth'
+		url = 'https://api.modrinth.com/maven'
+	}
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Nothing is obfuscated from 26.1 on, so loom runs without remapping and the usual
+	// modImplementation configuration is not created at all. Plain implementation is what is left,
+	// and it needs no remapping because the mod jars already use the real names.
+	//
+	// Fabric API, Mod Menu and YACL exist here only for the config screen, and they are compile only
+	// unless the build is asked for them. Having them on the runtime classpath is not free: Fabric
+	// API brings its own renderer and its own mixins onto the block rendering path, which is the
+	// same path this mod hooks, so loading it can quietly take the hiding with it. Compile only
+	// keeps the screen compiling without putting them in the way. Build with -PconfigScreen to get
+	// them at runtime and try the screen.
+	def configScreenDeps = [
+		"net.fabricmc.fabric-api:fabric-api:0.155.3+26.1.2",
+		"com.terraformersmc:modmenu:18.0.1",
+		"maven.modrinth:yacl:3.9.6+26.1-fabric"
+	]
+
+	if (project.hasProperty("configScreen")) {
+		configScreenDeps.each { implementation it }
+	}
+	else {
+		configScreenDeps.each { compileOnly it }
+	}
+
+	// Sodium replaces the block renderer outright, so with it installed the vanilla hooks never
+	// see a quad and nothing is ever hidden. The jar is only here to compile against, and the
+	// mixins that target it are allowed to fail, so it costs nothing when Sodium is absent.
+	compileOnly files("libs/sodium-fabric-0.9.2+mc26.1.2.jar")
+}
+
+processResources {
+	final def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+	withSourcesJar()
+}

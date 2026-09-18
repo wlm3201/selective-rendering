@@ -1,0 +1,32 @@
+{
+	"schemaVersion": 1,
+	"id": "selective_rendering",
+	"version": "${version}",
+	"name": "Selective Rendering",
+	"description": "Selective block rendering: hold a breeze rod, then scroll to switch mode and transparency, and click blocks to build the list.\nPorted from the selective rendering feature of Lucidity by mypals/ml.",
+	"authors": [
+		"mypals/ml (original Lucidity)",
+		"ported to Minecraft 26.1.2"
+	],
+	"license": "CC-BY-NC-4.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.selectiverendering.SelectiveRendering"
+		],
+		"modmenu": [
+			"com.selectiverendering.config.ModMenuIntegration"
+		]
+	},
+	"mixins": [
+		{
+			"config": "selective-rendering.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"java": ">=25",
+		"minecraft": "~26.1"
+	}
+}
