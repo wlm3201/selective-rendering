@@ -1,0 +1,40 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.selectiverendering.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"BlockEntityRenderDispatcherMixin",
+		"BlockFeatureRendererMixin",
+		"BlockModelLighterMixin",
+		"ClientLanguageMixin",
+		"ClientLevelMixin",
+		"compat.EntityCullingProviderMixin",
+		"compat.FabricRendererApiBlockRendererMixin",
+		"compat.FabricRendererApiLightMixin",
+		"compat.FabricRendererApiMovingBlockMixin",
+		"FeatureRenderDispatcherMixin",
+		"FluidModelMixin",
+		"FluidRendererMixin",
+		"GuiMixin",
+		"LightEngineMixin",
+		"LightmapRenderStateExtractorMixin",
+		"LevelRendererMixin",
+		"ModelBlockRendererMixin",
+		"MouseHandlerMixin",
+		"RenderSetupAccessor",
+		"RenderTypeAccessor",
+		"RenderTypeFeatureRendererMixin",
+		"SectionCompilerMixin",
+		"SubmitNodeCollectionMixin",
+		"TextureBindingAccessor",
+		"sodium.AbstractBlockRenderContextMixin",
+		"sodium.BlockRendererMixin",
+		"sodium.ChunkBuilderMeshingTaskMixin",
+		"sodium.DefaultFluidRendererMixin",
+		"sodium.LightDataAccessMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}

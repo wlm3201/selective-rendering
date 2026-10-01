@@ -1,0 +1,118 @@
+apply plugin: 'java'
+apply plugin: 'net.fabricmc.fabric-loom'
+apply plugin: 'maven-publish'
+
+version = rootProject.version
+
+base {
+	archivesName = "${rootProject.name}-mc${project.ext.minecraftVersion}"
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"selective-rendering" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+repositories {
+	maven {
+		name = 'Terraformers'
+		url = 'https://maven.terraformersmc.com/'
+	}
+	maven {
+		name = 'Modrinth'
+		url = 'https://api.modrinth.com/maven'
+	}
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.ext.minecraftVersion}"
+	implementation "net.fabricmc:fabric-loader:${rootProject.property('loader_version')}"
+
+	implementation "maven.modrinth:malilib:${project.ext.malilibVersion}"
+
+	def configScreen = rootProject.hasProperty('configScreen') || project.hasProperty('configScreen')
+	def configScreenDeps = [
+		"net.fabricmc.fabric-api:fabric-api:${project.ext.fabricApiVersion}",
+		"com.terraformersmc:modmenu:${project.ext.modmenuVersion}"
+	]
+
+	configScreenDeps.each {
+		if (configScreen) {
+			implementation it
+		} else {
+			compileOnly it
+		}
+	}
+
+	compileOnly "net.fabricmc.fabric-api:fabric-renderer-api-v1:${project.ext.fabricRendererApiVersion}"
+
+	compileOnly "maven.modrinth:sodium:${project.ext.sodiumVersion}"
+}
+
+sourceSets {
+	main {
+		java.srcDirs = ["${rootDir}/src/main/java"]
+		resources.srcDirs = ["${rootDir}/src/main/resources"]
+	}
+	client {
+		java.srcDirs = ["${rootDir}/src/client/java", "${projectDir}/src/client/java"]
+		resources.srcDirs = ["${rootDir}/src/client/resources", "${projectDir}/src/client/resources"]
+	}
+}
+
+def projectVersion = project.version
+def minecraftDep = project.ext.minecraftDependency
+
+// MaLiLib 是必需依赖，而它的版本跟 MC 版本绑死（见各 versions/<mc>/build.gradle 的
+// malilibVersion）。这里取构建时用的那个版本当下限，避免玩家装了别的 MC 版本对应的
+// MaLiLib 也能进游戏然后崩——fabric.mod.json 里写 "*" 等于不校验。
+def malilibDep = ">=${project.ext.malilibVersion}"
+
+processResources {
+	inputs.property "version", projectVersion
+	inputs.property "minecraft_dependency", minecraftDep
+	inputs.property "malilib_dependency", malilibDep
+
+	filesMatching("fabric.mod.json") {
+		expand "version": projectVersion, "minecraft_dependency": minecraftDep, "malilib_dependency": malilibDep
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = rootProject.name
+	inputs.property "projectName", projectName
+
+	from("${rootDir}/LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	repositories {
+	}
+}

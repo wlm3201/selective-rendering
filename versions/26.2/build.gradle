@@ -1,0 +1,9 @@
+ext.minecraftVersion = '26.2'
+ext.fabricApiVersion = '0.161.0+26.2'
+ext.fabricRendererApiVersion = '14.1.4+2b0d8a229e'
+ext.malilibVersion = '0.29.6'
+ext.modmenuVersion = '20.0.3'
+ext.sodiumVersion = 'mc26.2-0.9.2-fabric'
+ext.minecraftDependency = '~26.2'
+
+apply from: "$rootDir/gradle/mod.gradle"
