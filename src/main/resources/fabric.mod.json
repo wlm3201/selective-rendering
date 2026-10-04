@@ -3,7 +3,7 @@
 	"id": "selective_rendering",
 	"version": "${version}",
 	"name": "Selective Rendering",
-	"description": "Selective block rendering: hold a breeze rod, then scroll to switch mode and transparency, and click blocks to build the list.\nPorted from the selective rendering feature of Lucidity by ryan100c.",
+	"description": "A client-side mod that makes any block translucent or hides it, based on \"region + block list\"",
 	"authors": [
 		"ryan100c (original author)",
 		"wlm3201 (porter)"

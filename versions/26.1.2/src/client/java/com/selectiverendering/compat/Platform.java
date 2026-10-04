@@ -2,6 +2,7 @@ package com.selectiverendering.compat;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.LevelRenderer;
@@ -25,6 +26,8 @@ import net.minecraft.client.resources.model.geometry.BakedQuad;
  *   <li><b>GUI 访问</b>：26.2 起 {@code minecraft.screen} 变成 {@code minecraft.gui.screen()}。</li>
  *   <li><b>按键名</b>：{@code InputConstants.Type.KEYSYM} → {@code KEYBOARD}。</li>
  *   <li><b>{@code BakedQuad.MaterialInfo} 构造参数</b>：字段数量随版本增减。</li>
+ *   <li><b>取主相机</b>：26.1.2 是 {@code GameRenderer#getMainCamera()}，26.2 起改名
+ *       成 {@code mainCamera()}。</li>
  * </ul>
  *
  * <p>新增一个 MC 版本支持时，第一步就是照着现有某个 {@code Platform} 复制一份再改。
@@ -35,6 +38,11 @@ public final class Platform {
 	public static final int MOUSE_RIGHT = 1;
 
 	private Platform() {
+	}
+
+	/** 当前真正用于渲染的相机。出窍相机类 mod 改的就是它，所以魔杖射线要读它而不是玩家实体。 */
+	public static Camera camera(Minecraft minecraft) {
+		return minecraft.gameRenderer.getMainCamera();
 	}
 
 	/**

@@ -74,7 +74,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <b>不要</b>再单独调用 {@code publish()} / {@code persist()}。
  */
 public final class SelectiveRenderingManager {
-	public static final int TRANSPARENCY_STEP = 5;
+	public static final int TRANSPARENCY_STEP = 1;
 	public static final int MAX_TRANSPARENCY = 100;
 
 	public static final Mode DEFAULT_MODE = Mode.OFF;
@@ -256,6 +256,14 @@ public final class SelectiveRenderingManager {
 	 */
 	public static final boolean DEFAULT_INVERT = false;
 
+	/**
+	 * "穿透交互"是否默认开启：准星射线把被淡化的方块当空气，
+	 * 于是能瞄准、描边、破坏、右键它<b>后面</b>的方块。
+	 *
+	 * <p>默认开启——这正是本功能的全部意义；关掉就退回"淡化方块照样挡住准星"。
+	 */
+	public static final boolean DEFAULT_PASS_THROUGH = true;
+
 	private static volatile Mode mode = DEFAULT_MODE;
 	private static volatile int transparency = DEFAULT_TRANSPARENCY;
 	private static volatile RecordMode recordMode = DEFAULT_RECORD_MODE;
@@ -283,6 +291,8 @@ public final class SelectiveRenderingManager {
 	 * 判定开销直接抹掉。
 	 */
 	private static volatile boolean fullBright = DEFAULT_FULL_BRIGHT;
+
+	private static volatile boolean passThrough = DEFAULT_PASS_THROUGH;
 
 	private static volatile BlockPos corner1;
 	private static volatile BlockPos corner2;
@@ -315,6 +325,7 @@ public final class SelectiveRenderingManager {
 			invert = config.invert;
 			wand = config.wand == null || config.wand.isBlank() ? DEFAULT_WAND : config.wand.trim();
 			fullBright = config.fullBright;
+			passThrough = config.passThrough;
 
 			if (config.rules != null) {
 				for (String source : config.rules) {
@@ -1053,6 +1064,61 @@ public final class SelectiveRenderingManager {
 	}
 
 	/**
+	 * 配置项"穿透交互"的<b>原始值</b>（就是落盘的那个布尔量）。
+	 *
+	 * <p>配置界面读写用这个：它必须是"玩家自己勾的什么"，
+	 * 不能掺进"模式是不是关着"——否则模式关闭时会回灌一个 false 到复选框上，
+	 * 玩家再勾一次反而把偏好值改没了。
+	 */
+	public static boolean isPassThrough() {
+		return passThrough;
+	}
+
+	/**
+	 * 射线这一帧<b>实际</b>要不要穿透（{@code EntityPickMixin} 用这个）。
+	 *
+	 * <p>比 {@link #isPassThrough} 多两个前置条件：
+	 * <ol>
+	 *   <li><b>模式是否关闭</b>：关闭时 {@link #alphaNow} 一律返回 -1，
+	 *       套外壳只会白白分配一个对象，结果完全一样，直接短路掉；</li>
+	 *   <li><b>是否手持魔杖</b>：见下面。</li>
+	 * </ol>
+	 *
+	 * <h2>为什么手持魔杖时强制关闭</h2>
+	 * <p>魔杖的选点也是用 {@code Entity.pick} 打射线的
+	 * （{@code MouseHandlerMixin} 里 {@code camera.pick(MAX_TRACE_DISTANCE, ...)}，
+	 * 距离 200 格，专门用来点远处的角点）。
+	 * 穿透一旦生效，魔杖就会选到淡化方块<b>后面</b>的那个方块，
+	 * 而玩家看到、想选的正是那个淡化方块本身——手感完全反了。
+	 *
+	 * <p>所以手持魔杖时一律退回"淡化方块照样挡住射线"，
+	 * 与魔杖上线前的行为一致。
+	 */
+	public static boolean isPassThroughActive() {
+		return passThrough && mode != Mode.OFF && !SelectiveRendering.isWandHeld();
+	}
+
+	/**
+	 * 切换"穿透交互"。
+	 *
+	 * <p>与 {@link #setMode} / {@link #setInvert} 不同，<b>不需要重建区块</b>：
+	 * 本开关只影响"射线怎么算"，不参与画面渲染，下一帧的准星就变了。
+	 * 但仍然要 {@code commit()}——它得落盘。
+	 */
+	public static void setPassThrough(boolean value) {
+		synchronized (LOCK) {
+			if (value == passThrough) {
+				return;
+			}
+
+			passThrough = value;
+			commit();
+		}
+
+		Log.say("[state] pass through {}", value);
+	}
+
+	/**
 	 * 记录器用的判定：这个方块是不是"我们关心的那一类"。
 	 * 名单是 {@link #RECORDED}（配置里的 {@code recorded}），过滤方向由 {@link #recordMode} 决定。
 	 * 与渲染用的 {@link #RULES} 完全独立。
@@ -1207,6 +1273,20 @@ public final class SelectiveRenderingManager {
 
 	public static boolean isHidden(BlockGetter level, BlockPos pos) {
 		return getAlpha(level.getBlockState(pos), pos) >= 0;
+	}
+
+	/**
+	 * {@link #isHidden} 的<b>纯查询版</b>：不往 {@link HiddenSections} 记账。
+	 *
+	 * <p>准星射线（{@code FadedBlockGetter}）用它判断"这一格要不要当空气"。
+	 * 射线在客户端主线上跑、每帧两次，不属于渲染管线，
+	 * 记账只会污染"改透明度时要重建哪些 section"的集合，所以必须走 {@link #alphaNow}。
+	 *
+	 * <p>与 {@link #alphaAt} 的区别：那个只收坐标、自己现查方块状态；
+	 * 这里由调用方把状态传进来（射线本来就要先取状态做后续判定，不重复查表）。
+	 */
+	public static boolean isFaded(BlockState state, BlockPos pos) {
+		return alphaNow(state, pos, false) >= 0;
 	}
 
 	/**

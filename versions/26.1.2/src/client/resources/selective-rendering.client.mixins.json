@@ -9,6 +9,7 @@
 		"BlockModelLighterMixin",
 		"BufferSourceMixin",
 		"ClientLanguageMixin",
+		"ClientLevelClipMixin",
 		"ClientLevelMixin",
 		"compat.EntityCullingProviderMixin",
 		"compat.FabricRendererApiBlockRendererMixin",

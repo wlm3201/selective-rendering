@@ -19,6 +19,7 @@ import fi.dy.masa.malilib.config.ConfigManager;
 import fi.dy.masa.malilib.config.ConfigUtils;
 import fi.dy.masa.malilib.config.IConfigHandler;
 import fi.dy.masa.malilib.config.options.ConfigBoolean;
+import fi.dy.masa.malilib.config.options.ConfigBooleanHotkeyed;
 import fi.dy.masa.malilib.config.options.ConfigHotkey;
 import fi.dy.masa.malilib.config.options.ConfigInteger;
 import fi.dy.masa.malilib.config.options.ConfigOptionList;
@@ -26,6 +27,7 @@ import fi.dy.masa.malilib.config.options.ConfigString;
 import fi.dy.masa.malilib.config.options.ConfigStringList;
 import fi.dy.masa.malilib.event.InputEventHandler;
 import fi.dy.masa.malilib.event.TickHandler;
+import fi.dy.masa.malilib.hotkeys.IHotkey;
 import fi.dy.masa.malilib.hotkeys.IHotkeyCallback;
 import fi.dy.masa.malilib.hotkeys.IKeybind;
 import fi.dy.masa.malilib.hotkeys.IKeybindManager;
@@ -85,16 +87,28 @@ public final class ModConfigs {
 	public static final WandConfig WAND = new WandConfig();
 	public static final FullBrightConfig FULL_BRIGHT = new FullBrightConfig();
 	public static final InvertConfig INVERT = new InvertConfig();
+	public static final PassThroughConfig PASS_THROUGH = new PassThroughConfig();
 
 	public static final RecordHotkey RECORD_KEY = new RecordHotkey();
 
 	private static boolean syncing = false;
 
 	/**
-	 * 所有快捷键配置项。和 MaLiLib / Litematica 里的 {@code HOTKEY_LIST} 一个意思：
+	 * 纯快捷键配置项。和 MaLiLib / Litematica 里的 {@code HOTKEY_LIST} 一个意思：
 	 * 集中放在一个不可变 List 里，配合 {@code ConfigUtils} 一次性读写。
 	 */
 	private static final List<ConfigHotkey> HOTKEY_LIST = List.of(OPEN_CONFIG_GUI, REGION_KEY, BLOCKS_KEY, RECORD_KEY);
+
+	/**
+	 * "布尔 + 快捷键"的配置项（{@link fi.dy.masa.malilib.config.IHotkeyTogglable}）。
+	 *
+	 * <p>不能塞进 {@link #HOTKEY_LIST}：那个用的是 {@code ConfigUtils.writeConfigBase}，
+	 * 会把整个 {@code {enabled, hotkey}} 对象写进去，于是布尔值同时出现在
+	 * {@code ModConfig.passThrough} 和 {@code hotkeys} 两处 —— 两个来源，
+	 * 迟早会不一致。这里单独用 {@code writeHotkeys / readHotkeys}，
+	 * <b>只落盘键位</b>，布尔值仍然只由 manager 经 {@code ModConfig.passThrough} 管。
+	 */
+	private static final List<IHotkey> TOGGLE_LIST = List.of(PASS_THROUGH);
 
 	private ModConfigs() {
 	}
@@ -110,9 +124,30 @@ public final class ModConfigs {
 		WAND.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setWand(config.getStringValue())));
 		FULL_BRIGHT.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setFullBright(config.getBooleanValue())));
 		INVERT.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setInvert(config.getBooleanValue())));
+		PASS_THROUGH.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setPassThrough(config.getBooleanValue())));
 
 		TickHandler.getInstance().registerClientTickHandler(BlockChangeRecorder::onTick);
-		readHotkeys();
+
+		/**
+		 * ⚠ 必须包在 {@code syncing} 里。
+		 *
+		 * <p>{@link ConfigBooleanHotkeyed} 的 {@code ConfigUtils.readHotkeys} 末尾会调
+		 * {@code checkIfClean()}：只要读到的键位和默认值不同，它就认为"值变了"并触发
+		 * {@code onValueChanged()} —— 即使这次只改了键位、压根没碰布尔值。
+		 *
+		 * <p>而回调（上面刚设好的那个）会把 {@code config.getBooleanValue()} 写回 manager。
+		 * 此刻控件里还是<b>默认值</b>（真值是从 {@code ModConfig} 读进 manager 的，
+		 * 还没回灌到控件上），于是玩家存下来的 {@code false} 会被无声地改回 {@code true}。
+		 * 屏蔽掉这个回调，真值交给末尾的 {@code syncFromManager()} 回灌。
+		 */
+		syncing = true;
+
+		try {
+			readHotkeys();
+		}
+		finally {
+			syncing = false;
+		}
 
 		OPEN_CONFIG_GUI.getKeybind().setCallback(new OpenConfigCallback());
 		RECORD_KEY.getKeybind().setCallback(new RecordCallback());
@@ -146,6 +181,7 @@ public final class ModConfigs {
 			WAND.setValueFromString(SelectiveRenderingManager.getWand());
 			FULL_BRIGHT.setBooleanValue(SelectiveRenderingManager.isFullBright());
 			INVERT.setBooleanValue(SelectiveRenderingManager.isInvert());
+			PASS_THROUGH.setBooleanValue(SelectiveRenderingManager.isPassThrough());
 		}
 		finally {
 			syncing = false;
@@ -191,12 +227,15 @@ public final class ModConfigs {
 		JsonObject holder = new JsonObject();
 		holder.add(HOTKEY_CATEGORY, stored);
 		ConfigUtils.readConfigBase(holder, HOTKEY_CATEGORY, HOTKEY_LIST);
+		// 只读键位，不读布尔值（见 TOGGLE_LIST 的注释）
+		ConfigUtils.readHotkeys(holder, HOTKEY_CATEGORY, TOGGLE_LIST);
 	}
 
 	/** 把当前按键写进磁盘配置。重复调用安全：{@link ModConfig#save()} 自带内容去重。 */
 	private static void writeHotkeys() {
 		JsonObject holder = new JsonObject();
 		ConfigUtils.writeConfigBase(holder, HOTKEY_CATEGORY, HOTKEY_LIST);
+		ConfigUtils.writeHotkeys(holder, HOTKEY_CATEGORY, TOGGLE_LIST);
 
 		ModConfig.get().hotkeys = holder.getAsJsonObject(HOTKEY_CATEGORY);
 		ModConfig.save();
@@ -442,9 +481,16 @@ public final class ModConfigs {
 		}
 	}
 
+	/**
+	 * 记录器开关按键。
+	 *
+	 * <p><b>默认不绑定任何键</b>：记录器一开就会在后台持续改变选区，
+	 * 绑一个默认键很容易被不懂的人误触（原本是 {@code N}）。
+	 * 需要的人自己去设置里绑。
+	 */
 	public static final class RecordHotkey extends ConfigHotkey {
 		public RecordHotkey() {
-			super("record_key", "N", KeybindSettings.DEFAULT);
+			super("record_key", "", KeybindSettings.DEFAULT);
 		}
 
 		@Override
@@ -518,6 +564,56 @@ public final class ModConfigs {
 		}
 	}
 
+	/**
+	 * "穿透交互"：准星射线把被淡化的方块当空气，能瞄准到它后面的方块。
+	 *
+	 * <p>描边 / 裂纹 / 破坏 / 右键交互全部跟着准星走，所以这一个开关就够；
+	 * 关掉则淡化方块照样挡住准星（= 本功能上线前的行为）。
+	 *
+	 * <p>注意它<b>不触发区块重建</b>——只影响射线怎么算，不参与画面渲染。
+	 *
+	 * <h2>为什么是 {@code ConfigBooleanHotkeyed} 而不是"布尔 + 一条快捷键"</h2>
+	 * <p>MaLiLib 的这个类型在 GUI 里渲染成<b>一行</b>：左边布尔值、右边键位、
+	 * 再右边重置按钮（{@code WidgetConfigOption} 里有专门的
+	 * {@code ConfigBooleanHotkeyed} 分支）。拆成两个 {@code ConfigBoolean} +
+	 * {@code ConfigHotkey} 就成了两行，而且键位那一行看不出它属于谁。
+	 *
+	 * <p>它还自带 {@code KeyCallbackToggleBooleanConfigWithMessage}：
+	 * 按键直接切换本布尔值（走 {@code valueChangeCallback} 同步给 manager），
+	 * 并顺手弹一条 MaLiLib 标准的动作栏消息（绿色 ON / 红色 OFF）。
+	 * 所以不需要自己写回调，也不需要自己拼文案。
+	 *
+	 * <p><b>默认不绑定任何键</b>：这是个会改变交互手感的开关，绑默认键容易误触。
+	 * 注意键位只落盘到 {@code hotkeys} 那一节（见 {@link ModConfigs#TOGGLE_LIST}），
+	 * 布尔值仍然只由 manager 管。
+	 */
+	public static final class PassThroughConfig extends ConfigBooleanHotkeyed {
+		public PassThroughConfig() {
+			super("pass_through", SelectiveRenderingManager.DEFAULT_PASS_THROUGH, "");
+		}
+
+		/**
+		 * 动作栏消息里的名字。{@code KeyCallbackToggleBooleanConfigWithMessage} 用的是
+		 * {@code getPrettyName()}，默认会退化成 {@code splitCamelCase("pass_through")}，
+		 * 于是中文环境下弹出一条英文。覆写成我们的翻译 key 即可（走同一套
+		 * {@code ClientLanguage} 劫持，和 GUI 上显示的名字一致）。
+		 */
+		@Override
+		public String getPrettyName() {
+			return text("pass_through");
+		}
+
+		@Override
+		public String getConfigGuiDisplayName() {
+			return text("pass_through");
+		}
+
+		@Override
+		public MutableComponent getCommentComponent() {
+			return textComponent("pass_through.description");
+		}
+	}
+
 	private static final class Handler implements IConfigHandler {
 		@Override
 		public void load() {
@@ -546,11 +642,18 @@ public final class ModConfigs {
 			manager.addKeybindToMap(RECORD_KEY.getKeybind());
 			manager.addKeybindToMap(REGION_KEY.getKeybind());
 			manager.addKeybindToMap(BLOCKS_KEY.getKeybind());
+			manager.addKeybindToMap(PASS_THROUGH.getKeybind());
 		}
 
 		@Override
 		public void addHotkeys(IKeybindManager manager) {
-			manager.addHotkeysForCategory(MOD_NAME, SelectiveRendering.MOD_ID + ".hotkeys.category.main", List.of(RECORD_KEY, REGION_KEY, BLOCKS_KEY, OPEN_CONFIG_GUI));
+			// 显式指定 List<IHotkey>：这一串里混了 ConfigHotkey 和 ConfigBooleanHotkeyed
+			// 两种类型，不写类型见证的话推导出的公共父类型可能不是 IHotkey
+			manager.addHotkeysForCategory(
+				MOD_NAME,
+				SelectiveRendering.MOD_ID + ".hotkeys.category.main",
+				List.<IHotkey>of(RECORD_KEY, REGION_KEY, BLOCKS_KEY, PASS_THROUGH, OPEN_CONFIG_GUI)
+			);
 		}
 	}
 

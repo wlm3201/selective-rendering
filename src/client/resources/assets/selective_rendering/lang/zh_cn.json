@@ -39,6 +39,8 @@
   "selective_rendering.config.record_key.description": "记录方块变化的区域",
   "selective_rendering.config.full_bright": "夜视",
   "selective_rendering.config.full_bright.description": "方块全亮并跳过额外光照计算",
+  "selective_rendering.config.pass_through": "穿透交互",
+  "selective_rendering.config.pass_through.description": "准星无视淡化的方块，直接瞄准后面的方块",
   "selective_rendering.config.wand": "魔杖",
   "selective_rendering.config.wand.description": "手持生效",
   "selective_rendering.config.items": "方块列表",

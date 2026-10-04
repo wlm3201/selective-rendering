@@ -15,6 +15,7 @@ rewritten for the new rendering architecture of MC 26.1 ~ 26.3, with compatibili
 - **Transparency**: 0% = fully opaque, 100% = completely hidden.
 - **Modes**: inside/outside selection × listed/unlisted, 9 modes in total.
 - **Invert**: show only the specified blocks instead.
+- **Interact through**: the crosshair ignores faded blocks and targets what is **behind** them (outline, breaking cracks and interactions all behave like vanilla). Can be bound to a toggle key; unbound by default.
 - **Selections**: works like a schematic-projection mod.
 - **Change recorder**: records the areas where blocks / states changed.
 - **Presets**: save the current "mode / transparency / blocks / selections" for quick switching.
@@ -42,17 +43,23 @@ The default wand is a **breeze rod** — hold it in your hand to enable the oper
 
 ### Hotkeys
 
-| Key         | Default | Effect                            |
-| ----------- | ------- | --------------------------------- |
-| Open config | `X + V` | Open the config screen            |
-| Record      | `N`     | Start / stop recording block changes |
+| Key             | Default  | Effect                              |
+| --------------- | -------- | ----------------------------------- |
+| Open config     | `X + V`  | Open the config screen              |
+| Record          | unbound  | Start / stop recording block changes |
+| Interact through| unbound  | Toggle "interact through"           |
+
+> The record key and the interact-through key are **both unbound by default**:
+> the former keeps altering your selections while active, the latter changes how
+> interaction feels — both are easy to trigger by accident.
+> Bind them in the config screen if you want them.
 
 ### Recorder
 
 1. Make a selection first;
-2. Press `N` to start recording;
+2. Press the **record key** (unbound by default) to start recording;
 3. Run the machine once;
-4. Press `N` again to stop recording.
+4. Press it again to stop recording.
 
 - **List mode**
   - **Include**: only record changes of blocks in the list.
@@ -63,7 +70,7 @@ The default wand is a **breeze rod** — hold it in your hand to enable the oper
 
 ### Config
 
-- **Mode / invert / transparency**
+- **Mode / invert / transparency / interact through**
 - **Block list**
 - **Selection list** (format `minX,minY,minZ:maxX,maxY,maxZ`)
 - **Block key / selection key / config key**
@@ -71,6 +78,10 @@ The default wand is a **breeze rod** — hold it in your hand to enable the oper
 - **Wand** item
 - **Night vision**
 - **Presets**: new / apply / overwrite / remove
+
+> "Interact through" is a **single row**: the switch on the left, and a bindable
+> toggle key on the right — so you change the value and the key in one place
+> instead of hunting across two rows.
 
 ---
 

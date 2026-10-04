@@ -26,6 +26,8 @@ src/                        共享源码（所有 MC 版本共用）
     ├── BlockChangeRecorder.java         变化记录器
     ├── BlockListMessage.java            屏幕下方的浮动提示
     ├── ModTranslations.java             自带翻译（劫持 ClientLanguage）
+    ├── FadedBlockGetter.java            ★ 客户端射线专用：把淡化方块说成空气的 BlockGetter 外壳
+    ├── CameraRay.java                   ★ 魔杖射线：从渲染相机出发、穿过鼠标指针
     ├── mixin/                           原版渲染管线补丁
     │   ├── ModelBlockRendererMixin      ★ 方块：取消 / 面剔除 / alpha / 换材质
     │   ├── LevelRendererMixin           选区线框（双注入点，兼容方法改名）
@@ -36,6 +38,7 @@ src/                        共享源码（所有 MC 版本共用）
     │   ├── BlockModelLighterMixin       平滑光照(AO)把隐藏方块当空气
     │   ├── BlockEntityRenderDispatcherMixin  方块实体淡化
     │   ├── MouseHandlerMixin            ★ 魔杖的全部鼠标交互
+    │   ├── ClientLevelClipMixin         ★ 客户端射线：淡化方块当空气（见第六节）
     │   ├── ClientLevelMixin             给记录器喂方块变化
     │   ├── ClientLanguageMixin          翻译劫持（按 selective_rendering. 前缀过滤）
     │   ├── compat/                      Fabric Renderer API (Indigo) 补丁
@@ -60,11 +63,11 @@ versions/<mc版本>/           只放该版本独有的适配代码
 
 全 Mod 只有这一个"真理来源"，返回：
 
-| 返回值 | 含义 |
-|---|---|
-| `-1` | 正常渲染 |
-| `0` | 完全隐藏（透明度 100%），mixin 直接 `ci.cancel()` |
-| `1..255` | 顶点 alpha，保留几何但改颜色 + 挪到半透明层 |
+| 返回值   | 含义                                              |
+| -------- | ------------------------------------------------- |
+| `-1`     | 正常渲染                                          |
+| `0`      | 完全隐藏（透明度 100%），mixin 直接 `ci.cancel()` |
+| `1..255` | 顶点 alpha，保留几何但改颜色 + 挪到半透明层       |
 
 它被区块构建线程、光照线程、渲染线程**并发**调用，因此只读不可变快照、全程不加锁。
 
@@ -94,15 +97,15 @@ synchronized (LOCK) {
 
 同一个逻辑要打 3~4 份补丁，因为原版 / Sodium / Indigo 各有各的数据结构：
 
-| 目标 | 原版 | Sodium | Indigo |
-|---|---|---|---|
-| 方块几何 + alpha | `ModelBlockRendererMixin` | `sodium.BlockRendererMixin` | `compat.FabricRendererApiBlockRendererMixin` |
-| 可见性图 | `SectionCompilerMixin` | `sodium.ChunkBuilderMeshingTaskMixin` | — |
-| 平滑光照当空气 | `BlockModelLighterMixin` | `sodium.LightDataAccessMixin` | `compat.FabricRendererApiLightMixin` |
-| 光照引擎当空气 | `LightEngineMixin` | （共用） | （共用） |
-| 流体 | `FluidRendererMixin` + `FluidModelMixin` | `sodium.DefaultFluidRendererMixin` | — |
-| 移动方块 | `BlockFeatureRendererMixin` | — | `compat.FabricRendererApiMovingBlockMixin` |
-| 方块实体 | `BlockEntityRenderDispatcherMixin` → `SelectiveSubmitNodeCollector` | — | — |
+| 目标             | 原版                                                                | Sodium                                | Indigo                                       |
+| ---------------- | ------------------------------------------------------------------- | ------------------------------------- | -------------------------------------------- |
+| 方块几何 + alpha | `ModelBlockRendererMixin`                                           | `sodium.BlockRendererMixin`           | `compat.FabricRendererApiBlockRendererMixin` |
+| 可见性图         | `SectionCompilerMixin`                                              | `sodium.ChunkBuilderMeshingTaskMixin` | —                                            |
+| 平滑光照当空气   | `BlockModelLighterMixin`                                            | `sodium.LightDataAccessMixin`         | `compat.FabricRendererApiLightMixin`         |
+| 光照引擎当空气   | `LightEngineMixin`                                                  | （共用）                              | （共用）                                     |
+| 流体             | `FluidRendererMixin` + `FluidModelMixin`                            | `sodium.DefaultFluidRendererMixin`    | —                                            |
+| 移动方块         | `BlockFeatureRendererMixin`                                         | —                                     | `compat.FabricRendererApiMovingBlockMixin`   |
+| 方块实体         | `BlockEntityRenderDispatcherMixin` → `SelectiveSubmitNodeCollector` | —                                     | —                                            |
 
 后三项（光照引擎 / 方块实体）三条渲染后端是共用的，因为那里走的还是原版类。
 
@@ -112,14 +115,14 @@ synchronized (LOCK) {
 
 ### 必须留在 `versions/` 的
 
-| 文件 | 原因 |
-|---|---|
-| `compat/Platform.java` | **每个方法在三个版本里都不一样**：鼠标键码 `0/1` vs `1/3`、`levelRenderer` vs `levelExtractor`、`minecraft.screen` vs `minecraft.gui.screen()`、`KEYSYM` vs `KEYBOARD`、`MaterialInfo` 构造参数个数。这就是它的职责。 |
-| `AlphaVertexConsumer.java` | 实现 `VertexConsumer` 接口，接口成员随版本增删（26.3 多一个 `setUv3`）。 |
-| `SelectiveSubmitNodeCollector.java` | 实现 `SubmitNodeCollector` 接口，方法集随版本变（三份分别 8.4 / 9.0 / 10.3 KB）。 |
-| `mixin/BlockFeatureRendererMixin.java` | 26.1.2 打 `BlockFeatureRenderer.renderMovingBlockSubmits`；26.2+ 打 `MovingBlockFeatureRenderer.buildGroup`。目标类和注入策略都不是一回事。 |
-| `mixin/RenderTypeFeatureRendererMixin`<br>`mixin/BufferSourceMixin`<br>`mixin/compat/ImmediatelyFastBufferSourceMixin` | 三个"取 VertexConsumer"的入口各自依赖**只在部分版本存在**的类：`MultiBufferSource` 26.3 已删除；`RenderTypeFeatureRenderer` 26.2+ 才有。共享源码无法引用。 |
-| `mixin/FeatureRenderDispatcherMixin` | 差异不只是方法名，**返回类型也不同**：26.1.2 `endFrame` 返回 `void`，26.2+ `prepareFrame` 返回 `PreparedFrame`（26.1.2 里没有这个类）。 |
+| 文件                                                                                                                   | 原因                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compat/Platform.java`                                                                                                 | **每个方法在三个版本里都不一样**：鼠标键码 `0/1` vs `1/3`、`levelRenderer` vs `levelExtractor`、`minecraft.screen` vs `minecraft.gui.screen()`、`KEYSYM` vs `KEYBOARD`、`MaterialInfo` 构造参数个数。这就是它的职责。 |
+| `AlphaVertexConsumer.java`                                                                                             | 实现 `VertexConsumer` 接口，接口成员随版本增删（26.3 多一个 `setUv3`）。                                                                                                                                              |
+| `SelectiveSubmitNodeCollector.java`                                                                                    | 实现 `SubmitNodeCollector` 接口，方法集随版本变（三份分别 8.4 / 9.0 / 10.3 KB）。                                                                                                                                     |
+| `mixin/BlockFeatureRendererMixin.java`                                                                                 | 26.1.2 打 `BlockFeatureRenderer.renderMovingBlockSubmits`；26.2+ 打 `MovingBlockFeatureRenderer.buildGroup`。目标类和注入策略都不是一回事。                                                                           |
+| `mixin/RenderTypeFeatureRendererMixin`<br>`mixin/BufferSourceMixin`<br>`mixin/compat/ImmediatelyFastBufferSourceMixin` | 三个"取 VertexConsumer"的入口各自依赖**只在部分版本存在**的类：`MultiBufferSource` 26.3 已删除；`RenderTypeFeatureRenderer` 26.2+ 才有。共享源码无法引用。                                                            |
+| `mixin/FeatureRenderDispatcherMixin`                                                                                   | 差异不只是方法名，**返回类型也不同**：26.1.2 `endFrame` 返回 `void`，26.2+ `prepareFrame` 返回 `PreparedFrame`（26.1.2 里没有这个类）。                                                                               |
 
 ### 已经在共享里的"跨版本"技巧
 
@@ -134,10 +137,10 @@ synchronized (LOCK) {
 
 对照 ImmediatelyFast 的各分支可以确认它**只对 26.1.2 有效、且正好必要**：
 
-| IF 分支 | 目标 MC | `BatchableBufferSource` |
-|---|---|---|
-| `origin/26.1`（`1.15.4+26.1`） | **26.1 / 26.1.1 / 26.1.2** | ✅ 有（`MixinRenderBuffers` 用 `@Redirect` 把某个 `BufferSource` 换成它，且**覆写了 `getBuffer`**） |
-| `origin/26.2` 起（`1.17.2+26.3`） | 26.2+ | ❌ 已删除，批处理改成只把 `RenderTypeFeatureRenderer$Group` 的 `canReorder` 改成 true |
+| IF 分支                           | 目标 MC                    | `BatchableBufferSource`                                                                             |
+| --------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `origin/26.1`（`1.15.4+26.1`）    | **26.1 / 26.1.1 / 26.1.2** | ✅ 有（`MixinRenderBuffers` 用 `@Redirect` 把某个 `BufferSource` 换成它，且**覆写了 `getBuffer`**） |
+| `origin/26.2` 起（`1.17.2+26.3`） | 26.2+                      | ❌ 已删除，批处理改成只把 `RenderTypeFeatureRenderer$Group` 的 `canReorder` 改成 true               |
 
 也就是说：
 
@@ -167,3 +170,5 @@ synchronized (LOCK) {
 
 配置项本身只是"视图"，权威数据源永远是 `SelectiveRenderingManager`；
 落盘由 `ModConfig.save()` 防抖异步完成。
+
+---

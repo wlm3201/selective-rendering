@@ -56,6 +56,7 @@ public final class ModConfigGui extends GuiConfigsBase {
 		configs.add(new ConfigOptionWrapper(ModConfigs.OPEN_CONFIG_GUI));
 		configs.add(new ConfigOptionWrapper(ModConfigs.WAND));
 		configs.add(new ConfigOptionWrapper(ModConfigs.FULL_BRIGHT));
+		configs.add(new ConfigOptionWrapper(ModConfigs.PASS_THROUGH));
 		configs.add(new ConfigOptionWrapper(ModConfigs.RECORDED));
 		configs.add(new ConfigOptionWrapper(ModConfigs.RECORD_MODE));
 		configs.add(new ConfigOptionWrapper(ModConfigs.RECORD_APPLY_MODE));

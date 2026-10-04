@@ -4,11 +4,15 @@ import com.selectiverendering.config.ModConfigScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
+
+import java.util.function.BooleanSupplier;
 
 /**
  * Mod 客户端入口（{@code fabric.mod.json} 里注册的 {@code client} entrypoint）。
@@ -33,6 +37,9 @@ public class SelectiveRendering implements ClientModInitializer {
 
 	private static final String FABRIC_RENDERER_API_ID = "fabric-renderer-indigo";
 
+	/** OrbitCam 的 mod id。装了才去注册"鼠标认领"，见 {@link #registerMouseClaim}。 */
+	private static final String ORBITCAM_ID = "orbitcam";
+
 	/** 魔杖解析结果缓存。用单个引用存放，避免"新字符串 + 旧物品"的错配。 */
 	private static volatile Wand cachedWand;
 
@@ -49,6 +56,78 @@ public class SelectiveRendering implements ClientModInitializer {
 		SelectiveRenderingManager.load();
 
 		ModConfigScreen.register();
+		reportClipHook();
+		registerMouseClaim();
+	}
+
+	/**
+	 * 向 OrbitCam 注册"鼠标认领"：手持魔杖期间，整只鼠标都归魔杖。
+	 *
+	 * <h2>为什么需要它</h2>
+	 * <p>{@code ci.cancel()} 只能让行<b>事件</b>，让行不了<b>状态</b>。
+	 * 左 Alt 同时是我们的"方块键"和 OrbitCam 的相机修饰键，
+	 * 即使我们把按键事件吃掉了，Alt 被按住这件事仍会被它每帧读成"进入相机模式"，
+	 * 于是指针变成箭头、拖动仍然转视角。
+	 *
+	 * <p>OrbitCam 因此提供了一个认领接口：认领期间强制 {@code cameraMode = false}，
+	 * 指针/旋转/平移/滚轮一并交出来。语义就是我们那句"手持魔杖是更特殊的状态"的完整版。
+	 *
+	 * <h2>为什么用反射</h2>
+	 * <p>两个 mod 独立发布，不能互相硬依赖。OrbitCam 的这个方法签名用的是 JDK
+	 * 自带的 {@code BooleanSupplier}，所以反射接入不需要碰它的任何类型，
+	 * 它不在或签名变了都只是"退化成今天的行为"，不会影响本 Mod 启动。
+	 *
+	 * <p>认领的结果会打进日志——这个项目的 mixin 失败是静默的，
+	 * 能不打进日志就看不出来的地方都打一条。
+	 */
+	private static void registerMouseClaim() {
+		if (!FabricLoader.getInstance().isModLoaded(ORBITCAM_ID)) {
+			return;
+		}
+
+		try {
+			Class.forName("com.example.orbitcam.client.OrbitCam")
+				.getMethod("setMouseClaimProvider", BooleanSupplier.class)
+				.invoke(null, (BooleanSupplier) SelectiveRendering::isWandHeld);
+
+			Log.say("[state] orbitcam mouse claim registered");
+		}
+		catch (Throwable t) {
+			Log.say("[state] orbitcam mouse claim NOT registered ({})", t);
+		}
+	}
+
+	/**
+	 * 启动自检：射线穿透那个 mixin 到底应用上没有。
+	 *
+	 * <h2>为什么需要它</h2>
+	 * <p>本项目<b>不产 refmap</b>，Mixin 目标能不能解析在构建期验证不了。
+	 * 而它失败的方式是<b>静默的</b>：不崩游戏，只是那一个 mixin 类整个失效
+	 * （还会连带同类的其它注入点一起失效）。曾经把 {@code clip} 打在
+	 * {@code ClientLevel} 上（它只是继承 {@code BlockGetter} 的 default 方法、
+	 * 并未覆写），实际就是这么静悄悄失效的。
+	 *
+	 * <p>判据是"{@code ClientLevel} 自己<b>声明</b>了 {@code clip(ClipContext)}"——
+	 * 原版它只是从 {@code BlockGetter} 继承，没有声明；声明了就说明我们的覆写生效了。
+	 * 用 {@code getDeclaredMethod} 而不是 {@code getMethod}，后者会顺着继承链找到
+	 * default 方法，永远返回非 null，就查不出问题了。
+	 *
+	 * <p>{@code ClientLevel.class} 这个字面量会<b>强制加载</b>该类，
+	 * 也就是强制 Mixin 在这一刻完成转换 —— 于是成败立刻可见，
+	 * 不用等玩家真的进世界才发现。
+	 */
+	private static void reportClipHook() {
+		boolean installed = false;
+
+		try {
+			ClientLevel.class.getDeclaredMethod("clip", ClipContext.class);
+			installed = true;
+		}
+		catch (NoSuchMethodException e) {
+			installed = false;
+		}
+
+		Log.say("[state] pass through clip hook {}", installed ? "installed" : "MISSING (mixin failed to apply)");
 	}
 
 	/** 一次魔杖解析的结果，作为不可分割的整体缓存。 */
@@ -62,8 +141,10 @@ public class SelectiveRendering implements ClientModInitializer {
 	 * 滚轮切模式都只在手持时生效。默认魔杖是 {@code minecraft:breeze_rod}，
 	 * 可以在配置里改成任意物品 id。
 	 *
-	 * <p>注意：这里每帧都会被调用（{@code GuiMixin} / {@code LevelRendererMixin}），
-	 * 而 {@link #resolveWand()} 每次都会查一次物品注册表，是个可优化的点。
+	 * <p>调用很频繁：每帧的 HUD 与线框各一次，OrbitCam 装了之后还要再多一次
+	 * （它的"鼠标认领"每帧问一次，见 {@link #registerMouseClaim}）。
+	 * 但真正的开销只有"读两只手的 {@code ItemStack} +
+	 * 一次缓存命中的 {@link #resolveWand()}"，没有注册表查找，不需要再优化。
 	 */
 	public static boolean isWandHeld() {
 		Minecraft minecraft = Minecraft.getInstance();

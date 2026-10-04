@@ -138,6 +138,12 @@ public final class ModConfig {
 	/** 夜视：全局按全亮渲染，并跳过所有光照相关的计算。 */
 	public boolean fullBright = SelectiveRenderingManager.DEFAULT_FULL_BRIGHT;
 
+	/**
+	 * 穿透交互：准星射线把被淡化的方块当空气，
+	 * 可以瞄准 / 描边 / 破坏 / 右键它后面的方块。
+	 */
+	public boolean passThrough = SelectiveRenderingManager.DEFAULT_PASS_THROUGH;
+
 	private ModConfig() {
 	}
 

@@ -1,49 +1,49 @@
 ## ⚠️ 残留的已知限制（改之前请先读）
 
-### 1. `HiddenRenderTypes` 的标记按 RenderType 共享实例生效
+### `HiddenRenderTypes` 的标记按 RenderType 共享实例生效
 
 半透明变体 `RenderTypes.entityTranslucent(贴图)` 是共享实例，
 所以本帧内其它用了同一张贴图的 BE / 实体也可能被一起套上隐藏用的 alpha。
 因为标记每帧清空，影响限制在一帧内。
 
-*没有低成本的修法*：新版渲染是"先 submit 节点、后统一取 buffer"，
+_没有低成本的修法_：新版渲染是"先 submit 节点、后统一取 buffer"，
 想在取 buffer 时区分"是不是我们标的那个"，只能改到 submit 端，代价很大。
 
-### 2. `getAlpha` 仍然是 O(规则数 + 选区块数) 的线性扫描，没有缓存
+### `getAlpha` 仍然是 O(规则数 + 选区块数) 的线性扫描，没有缓存
 
 这是最大的性能杠杆（尤其 `LightEngineMixin`）。要加缓存就得处理失效
 （模式 / 名单 / 选区一变就要清），容易引入"改了但画面没变"的 bug，所以暂未做。
 真要做建议按 section 粒度缓存，并在所有 `commit*` 路径上统一失效。
 
-### 3. `getAlpha` 里跨线程访问客户端世界
+### `getAlpha` 里跨线程访问客户端世界
 
 处理"活塞推动中的方块"时会 `Minecraft.getInstance().level.getBlockEntity(pos)`，
 而这发生在区块构建工作线程上。只在 `carried` 为真（遇到 `moving_piston`）时触发，
 实际很少见，但属于不该有的跨线程访问。
 
-### 4. 关掉"夜视"后，重算光照仍然可能很贵
+### 关掉"夜视"后，重算光照仍然可能很贵
 
 Y 方向已经收窄成"选区自己的高度 ±15"，但**外壳层被完整重算**——理论上只需要
 重算外壳 + 内部受影响的格子，代价是要写一套更精细的遍历，暂未做。
 默认开启"夜视"时 `relight()` 直接跳过，不受影响。
 
-### 5. `SelectiveSubmitNodeCollector` 是 280 行样板代码 × 3 个版本
+### `SelectiveSubmitNodeCollector` 是 280 行样板代码 × 3 个版本
 
 每次 MC 增删 `SubmitNodeCollector` 的接口方法都要改三份，
 而且**漏实现的方法会静默地不被包装**（表现为那个类型不变淡，不会报错）。
 升级 MC 版本时这是最容易踩的坑——见 `docs/development.md` 的移植清单。
 
-### 6. `FluidRendererMixin` / `DefaultFluidRendererMixin` 的 `@ModifyVariable(ordinal = 0)`
+### `FluidRendererMixin` / `DefaultFluidRendererMixin` 的 `@ModifyVariable(ordinal = 0)`
 
 Mixin 的 ordinal 是"在**同类型**局部变量里数"，不是"第 0 个参数"。
 这里 `int` 型局部变量中第 0 个恰好是 `color`。语义很反直觉，改方法签名时务必重新核对。
 
-### 7. `toggleRegionAlongRay` 的语义不对称
+### `toggleRegionAlongRay` 的语义不对称
 
 "删"用的是视线穿过的最近那个选区盒子（不需要点到方块），
 "加"用的是当前双角点选区。行为是刻意的，已在代码注释里标注。
 
-### 8. 关掉"夜视"后，光照伪造仍然很贵
+### 关掉"夜视"后，光照伪造仍然很贵
 
 `airIfHidden` 会在光照引擎和 AO 里把被隐藏的方块伪装成空气，好让光"穿过"它们。
 这是全 Mod 最热的调用点（`LightEngine.getState` 上百万次量级），而且没有缓存。
@@ -54,13 +54,13 @@ Mixin 的 ordinal 是"在**同类型**局部变量里数"，不是"第 0 个参�
 容易引入"改了但画面没变"的 bug，所以暂未做。真要做建议按 section 粒度缓存，
 并在所有 `commit*` 路径上统一失效。
 
-### 9. `FeatureRenderDispatcherMixin` 仍是三份
+### `FeatureRenderDispatcherMixin` 仍是三份
 
 差异不只是方法名，返回类型也不同（26.1.2 `endFrame` 返回 `void`，
 26.2+ `prepareFrame` 返回 `PreparedFrame`，而 26.1.2 里没有 `PreparedFrame` 这个类），
 共享源码无法引用，所以只能按版本保留。
 
-### 10. 线框用的是 `Gizmos` API，依赖原版的帧内配对契约
+### 线框用的是 `Gizmos` API，依赖原版的帧内配对契约
 
 `Gizmos` 的"收集"（`Minecraft.renderFrame` → `LevelRenderer.collectPerFrame*Gizmos`）
 和"落地"（`GameRenderer.render` → `LevelRenderer.render` → `submitFeatures`
@@ -78,7 +78,7 @@ toggled in a wrong place"）。装了"失去焦点时降画质"的 mod（如 Dyn
 彻底不依赖这个契约需要改成自绘（像 Litematica / Lucidity 那样自己 submit），
 工作量不小，暂未做。
 
-### 11. EntityCulling 兼容层是字符串目标，失效时静默退化
+### EntityCulling 兼容层是字符串目标，失效时静默退化
 
 `EntityCullingProviderMixin` 用 `@Mixin(targets = "dev.tr7zw.entityculling.Provider")`
 注入它的 `isOpaqueFullCube`（体素光线追踪的"是不是实心墙"判定），

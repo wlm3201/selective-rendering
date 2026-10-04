@@ -8,6 +8,7 @@
 		"BlockFeatureRendererMixin",
 		"BlockModelLighterMixin",
 		"ClientLanguageMixin",
+		"ClientLevelClipMixin",
 		"ClientLevelMixin",
 		"compat.EntityCullingProviderMixin",
 		"compat.FabricRendererApiBlockRendererMixin",
