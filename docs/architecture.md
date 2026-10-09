@@ -40,7 +40,7 @@ src/                        共享源码（所有 MC 版本共用）
     │   ├── MouseHandlerMixin            ★ 魔杖的全部鼠标交互
     │   ├── ClientLevelClipMixin         ★ 客户端射线：淡化方块当空气（见第六节）
     │   ├── ClientLevelMixin             给记录器喂方块变化
-    │   ├── ClientLanguageMixin          翻译劫持（按 selective_rendering. 前缀过滤）
+    │   ├── ClientLanguageMixin          翻译劫持（按 selectiverendering. 前缀过滤）
     │   ├── compat/                      Fabric Renderer API (Indigo) 补丁
     │   └── sodium/                      Sodium 补丁（含 LightDataAccessMixin）
     └── config/                          MaLiLib 配置界面与接线

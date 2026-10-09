@@ -9,17 +9,31 @@
 _没有低成本的修法_：新版渲染是"先 submit 节点、后统一取 buffer"，
 想在取 buffer 时区分"是不是我们标的那个"，只能改到 submit 端，代价很大。
 
-### `getAlpha` 仍然是 O(规则数 + 选区块数) 的线性扫描，没有缓存
+### `getAlpha` 的缓存只对"与坐标无关"的部分生效
 
-这是最大的性能杠杆（尤其 `LightEngineMixin`）。要加缓存就得处理失效
-（模式 / 名单 / 选区一变就要清），容易引入"改了但画面没变"的 bug，所以暂未做。
-真要做建议按 section 粒度缓存，并在所有 `commit*` 路径上统一失效。
+现在有三层缓存（见 `SelectiveRenderingManager.StateCache`）：
+
+- 非区域模式（`BLACKLIST` / `WHITELIST`）：**整个结果**按 `BlockState` 缓存；
+- 区域模式的"是否命中名单"：按 `BlockState` 缓存；
+- 区域模式的"是否在选区内"：先比所有选区的外接盒，再按 **section** 缓存"是否相交"。
+
+于是真正还会线性扫的只剩 **"区域内模式的逐坐标判定"**（而且只在与选区相交的
+section 里）。失效靠 `RenderConfig` 换实例自动完成，不需要手写清理。
+
+活塞推动中的方块（`carried`）不进缓存：它的 state / 坐标会被现场改写，
+且 `[moving=true]` 依赖 `moving` 参数，不是纯函数。
 
 ### `getAlpha` 里跨线程访问客户端世界
 
 处理"活塞推动中的方块"时会 `Minecraft.getInstance().level.getBlockEntity(pos)`，
 而这发生在区块构建工作线程上。只在 `carried` 为真（遇到 `moving_piston`）时触发，
 实际很少见，但属于不该有的跨线程访问。
+
+> 遮挡图（`SectionCompilerMixin` / `ChunkBuilderMeshingTaskMixin`）和流体的面判定
+> 以前也走 `isHiddenAt` → `Minecraft.getInstance().level`，**这条已经修掉了**：
+> 它们改用 `isHiddenIn(level, pos)`，数据源分别是本次构建用的
+> `RenderSectionRegion`（原版）和 `LevelSlice`（Sodium），两者都是线程隔离的快照。
+> 工作线程上的判定请用 `isHiddenIn`，不要用 `isHiddenAt` / `getAlphaAt` / `alphaAt`。
 
 ### 关掉"夜视"后，重算光照仍然可能很贵
 
@@ -46,13 +60,18 @@ Mixin 的 ordinal 是"在**同类型**局部变量里数"，不是"第 0 个参�
 ### 关掉"夜视"后，光照伪造仍然很贵
 
 `airIfHidden` 会在光照引擎和 AO 里把被隐藏的方块伪装成空气，好让光"穿过"它们。
-这是全 Mod 最热的调用点（`LightEngine.getState` 上百万次量级），而且没有缓存。
+这是全 Mod 最热的调用点（`LightEngine.getState` 上百万次量级）。
 
 默认的"夜视"开启时这一步被**完全跳过**（画面本来就全亮，伪造毫无意义），
 所以正常情况不受影响；**关掉夜视才会走上这条路**。
-要加缓存就得处理失效（模式 / 名单 / 选区一变就要清），
-容易引入"改了但画面没变"的 bug，所以暂未做。真要做建议按 section 粒度缓存，
-并在所有 `commit*` 路径上统一失效。
+
+现在 `alphaNow` 已经有 `BlockState` / section 两级缓存（见上一条），
+所以这条路径也吃到了缓存收益；但区域模式下逐坐标那部分仍然会线性扫。
+
+> 一个可选的彻底解法（LiquidBounce XRay 的做法）：**完全不碰光照引擎**，
+> 改成"出网格时把可视方块的亮度拉满"。这样就没有"需要还原的光照数据"，
+> `Relight` / `RETIRED_REGIONS` / 代际号整套都可以删掉。
+> 代价是关掉夜视后也拿不到"光真的穿过被淡化方块"的效果，属于功能取舍，暂未做。
 
 ### `FeatureRenderDispatcherMixin` 仍是三份
 

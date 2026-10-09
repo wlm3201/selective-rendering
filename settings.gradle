@@ -11,11 +11,8 @@ pluginManagement {
 
 rootProject.name = 'selective-rendering'
 
-include ':v26_1_2'
-project(':v26_1_2').projectDir = file('versions/26.1.2')
-
-include ':v26_2'
-project(':v26_2').projectDir = file('versions/26.2')
-
-include ':v26_3'
-project(':v26_3').projectDir = file('versions/26.3')
+new File(settingsDir, 'versions').eachDir { dir ->
+	def projectName = ':v' + dir.name.replace('.', '_').replace('-', '_')
+	include projectName
+	project(projectName).projectDir = dir
+}

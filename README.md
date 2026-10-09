@@ -1,4 +1,4 @@
-# Selective Rendering（选择性渲染）
+# Selective Rendering · 选择性渲染
 
 [English](README.en.md) | 简体中文
 
@@ -101,15 +101,3 @@ stone                                省略命名空间
 [waterlogged=false]                  方块状态
 *[moving=true]                       特殊伪状态，匹配移动中的方块
 ```
-
-## 许可
-
-CC-BY-NC-4.0。
-
----
-
-## 开发者文档
-
-- [`docs/architecture.md`](docs/architecture.md) — 代码结构、核心判定、渲染管线注入点地图、跨版本适配约定
-- [`docs/development.md`](docs/development.md) — 构建、多版本结构、新增 MC 版本步骤、移植清单
-- [`docs/known-issues.md`](docs/known-issues.md) — 残留的已知限制

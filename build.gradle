@@ -1,7 +1,69 @@
+
 plugins {
+	id 'base'
 	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+	id 'com.diffplug.spotless' version "${spotless_version}"
 }
 
-allprojects {
-	group = rootProject.group
+subprojects {
+	apply from: rootProject.file('gradle/mod.gradle')
+}
+
+repositories {
+	mavenCentral()
+}
+
+spotless {
+	java {
+		target 'src/**/*.java', 'versions/*/src/**/*.java'
+		googleJavaFormat().aosp()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
+
+def versionProjects = subprojects as List
+
+tasks.register('collectJars', Sync) {
+	group = 'build'
+	description = 'Collects the mod jar of every supported Minecraft version into build/libs.'
+
+	into rootProject.layout.buildDirectory.dir('libs')
+
+	versionProjects.each { p ->
+		dependsOn p.tasks.named('build')
+		from(p.layout.buildDirectory.dir('libs')) {
+			include "${p.base.archivesName.get()}-*.jar"
+			exclude '*-dev.jar'
+			exclude '*-sources*.jar'
+		}
+	}
+
+	outputs.upToDateWhen { false }
+}
+
+tasks.named('assemble') { dependsOn tasks.named('collectJars') }
+
+tasks.register('buildAll') {
+	group = 'build'
+	description = 'Builds the mod jar for every supported Minecraft version.'
+	dependsOn tasks.named('collectJars')
+}
+
+def versionKey = { String version ->
+	def parts = version.tokenize('.').collect { it as int }
+	while (parts.size() < 3) {
+		parts << 0
+	}
+	parts[0] * 1000000L + parts[1] * 1000L + parts[2]
+}
+
+def latestVersionProject = versionProjects.max { a, b ->
+	versionKey(a.property('minecraft_version') as String) <=> versionKey(b.property('minecraft_version') as String)
+}
+
+tasks.register('runClient') {
+	group = 'fabric'
+	description = "Runs the development client of the newest supported version (${latestVersionProject.property('minecraft_version')})."
+	dependsOn "${latestVersionProject.path}:runClient"
 }

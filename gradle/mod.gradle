@@ -1,18 +1,22 @@
+
 apply plugin: 'java'
 apply plugin: 'net.fabricmc.fabric-loom'
 apply plugin: 'maven-publish'
 
+def modId = rootProject.property('mod_id') as String
+
+group = rootProject.group
 version = rootProject.version
 
 base {
-	archivesName = "${rootProject.name}-mc${project.ext.minecraftVersion}"
+	archivesName = "${modId}-${project.minecraft_version}"
 }
 
 loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"selective-rendering" {
+		create(modId) {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
@@ -25,69 +29,61 @@ repositories {
 		url = 'https://maven.terraformersmc.com/'
 	}
 	maven {
+		name = 'Xander'
+		url = 'https://maven.isxander.dev/releases'
+	}
+	maven {
 		name = 'Modrinth'
 		url = 'https://api.modrinth.com/maven'
+		content { includeGroup 'maven.modrinth' }
 	}
-	mavenCentral()
 }
 
 dependencies {
-	minecraft "com.mojang:minecraft:${project.ext.minecraftVersion}"
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${rootProject.property('loader_version')}"
 
-	implementation "maven.modrinth:malilib:${project.ext.malilibVersion}"
+	implementation "maven.modrinth:malilib:${project.malilib_version}"
 
-	def configScreen = rootProject.hasProperty('configScreen') || project.hasProperty('configScreen')
-	def configScreenDeps = [
-		"net.fabricmc.fabric-api:fabric-api:${project.ext.fabricApiVersion}",
-		"com.terraformersmc:modmenu:${project.ext.modmenuVersion}"
-	]
+	compileOnly "net.fabricmc.fabric-api:fabric-renderer-api-v1:${project.fabric_renderer_api_version}"
+	compileOnly "maven.modrinth:sodium:${project.sodium_version}"
 
-	configScreenDeps.each {
-		if (configScreen) {
-			implementation it
-		} else {
-			compileOnly it
-		}
-	}
+	compileOnly "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 
-	compileOnly "net.fabricmc.fabric-api:fabric-renderer-api-v1:${project.ext.fabricRendererApiVersion}"
-
-	compileOnly "maven.modrinth:sodium:${project.ext.sodiumVersion}"
+	localRuntime "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	localRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
 }
 
 sourceSets {
 	main {
-		java.srcDirs = ["${rootDir}/src/main/java"]
-		resources.srcDirs = ["${rootDir}/src/main/resources"]
+		java.srcDirs = [rootProject.file('src/main/java'), file('src/main/java')]
+		resources.srcDirs = [rootProject.file('src/main/resources'), file('src/main/resources')]
 	}
 	client {
-		java.srcDirs = ["${rootDir}/src/client/java", "${projectDir}/src/client/java"]
-		resources.srcDirs = ["${rootDir}/src/client/resources", "${projectDir}/src/client/resources"]
+		java.srcDirs = [rootProject.file('src/client/java'), file('src/client/java')]
+		resources.srcDirs = [rootProject.file('src/client/resources'), file('src/client/resources')]
 	}
 }
 
-def projectVersion = project.version
-def minecraftDep = project.ext.minecraftDependency
+def modVersion = project.version.toString()
+def minecraftDependency = project.property('minecraft_dependency') as String
 
-// MaLiLib 是必需依赖，而它的版本跟 MC 版本绑死（见各 versions/<mc>/build.gradle 的
-// malilibVersion）。这里取构建时用的那个版本当下限，避免玩家装了别的 MC 版本对应的
-// MaLiLib 也能进游戏然后崩——fabric.mod.json 里写 "*" 等于不校验。
-def malilibDep = ">=${project.ext.malilibVersion}"
+def malilibDependency = ">=${project.malilib_version}"
 
 processResources {
-	inputs.property "version", projectVersion
-	inputs.property "minecraft_dependency", minecraftDep
-	inputs.property "malilib_dependency", malilibDep
+	inputs.property 'version', modVersion
+	inputs.property 'minecraft_dependency', minecraftDependency
+	inputs.property 'malilib_dependency', malilibDependency
 
-	filesMatching("fabric.mod.json") {
-		expand "version": projectVersion, "minecraft_dependency": minecraftDep, "malilib_dependency": malilibDep
+	filesMatching('fabric.mod.json') {
+		expand 'version': modVersion, 'minecraft_dependency': minecraftDependency, 'malilib_dependency': malilibDependency
 	}
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
 	it.options.encoding = 'UTF-8'
+	it.options.release = 25
 }
 
 java {
@@ -98,21 +94,16 @@ java {
 }
 
 jar {
-	def projectName = rootProject.name
-	inputs.property "projectName", projectName
-
-	from("${rootDir}/LICENSE") {
-		rename { "${it}_$projectName"}
+	from(rootProject.file('LICENSE')) {
+		rename { "${it}_${modId}" }
 	}
 }
 
 publishing {
 	publications {
-		create("mavenJava", MavenPublication) {
+		create('mavenJava', MavenPublication) {
+			artifactId = modId
 			from components.java
 		}
-	}
-
-	repositories {
 	}
 }
