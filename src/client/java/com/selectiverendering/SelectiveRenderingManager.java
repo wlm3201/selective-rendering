@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Blocks;
@@ -17,7 +18,9 @@ import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -30,16 +33,28 @@ import java.util.concurrent.atomic.AtomicLong;
  *   魔杖交互(MouseHandler)─┼─► 本类(写状态, persist 落盘, 触发区块重建)
  *   记录器(BlockChangeRecorder)─┘
  *                                    │
- *   渲染管线(mixin 们)  ─────────────┴─► getAlpha(state,pos)  ← 每帧/每次网格重建被调用几十万次
+ *   渲染管线(mixin 们)  ─────────────┴─► getAlpha(state,pos)  ← 热路径
  * </pre>
  *
- * <h2>两套数据：可变集合 + 不可变快照</h2>
- * <p>{@link #RULES} / {@link #REGIONS} / {@link #PRESETS} 是真正被修改的集合，
- * 修改时必须持 {@link #LOCK}；修改完调用 {@link #publish()} 生成不可变快照
- * （{@code ruleSnapshot} 等 {@code volatile} 字段）。
- * 渲染线程只读快照，因此遍历时不需要加锁——这是本类能在渲染热路径上
- * 无锁工作的关键。<b>代价：所有写操作后都必须记得调用 {@code publish()}，
- * 漏掉就会出现"改了但画面没变"。</b>
+ * <h2>三套数据：可变集合 + 不可变快照 + 每线程缓存</h2>
+ * <ol>
+ *   <li><b>可变集合</b>：{@link #RULES} / {@link #RECORDED} / {@link #REGIONS} / {@link #PRESETS}
+ *       以及 mode/transparency/... 这些字段，是真正被修改的状态。
+ *       修改时必须持 {@link #LOCK}。</li>
+ *   <li><b>不可变快照</b>：修改完调用 {@link #publish()}，把所有状态<b>一次性</b>打包成一个
+ *       {@link RenderConfig} 记录，写进单个 {@code volatile} 字段 {@link #config}。
+ *       渲染线程只读 {@code config}，因此遍历时不需要加锁。
+ *       <b>代价：所有写操作后都必须记得调用 {@code commit()}，漏掉就会出现"改了但画面没变"。</b></li>
+ *   <li><b>每线程缓存</b>：{@link StateCache}。热路径上同一份 {@code config} 内，
+ *       "这个 BlockState 该不该淡化"和"这个 section 有没有和选区相交"是<b>可以缓存的</b>，
+ *       见 {@link #alphaNow}。缓存挂在 {@code config} 上，换配置自动失效。</li>
+ * </ol>
+ *
+ * <p>为什么快照必须是一个对象而不是多个 {@code volatile} 字段：以前 mode / transparency /
+ * invert / 名单 / 选区是 5 个独立的 volatile，而 {@code setMode} 是先赋 {@code mode}、
+ * 再 {@code publish()} 刷新名单的；这中间存在一个窗口，区块构建线程会读到
+ * <b>新 mode + 旧名单</b>，产出一个混淆两代配置的网格（后续 {@link #rebuildChunks()} 会自愈，
+ * 但那几帧的画面是错的）。打包成一条引用后，读到的永远是一份自洽的配置。
  *
  * <h2>返回值的约定（非常重要）</h2>
  * <p>{@link #getAlpha} 返回 {@code -1} 表示"这个方块正常渲染"；
@@ -52,9 +67,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <h2>已知问题（保留现状，改动前请先读）</h2>
  * <ul>
- *   <li>{@link #getAlpha} 是 O(规则数 + 选区数) 的线性扫描，且会被区块构建工作线程、
- *       光照线程并发调用，没有任何缓存；选区/名单很大时这里会成为热点。</li>
- *   <li>{@link #getAlpha} 里为了处理"活塞推动中的方块"会去访问
+ *   <li>{@link #alphaNow} 仍然会做 O(规则数 + 选区块数) 的线性扫描，但只在
+ *       <b>缓存未命中</b>时发生：非区域模式按 {@code BlockState} 缓存最终结果，
+ *       区域模式按 {@code BlockState} 缓存"是否命中名单"、按 section 缓存"是否与选区相交"。
+ *       区块构建线程上不同 {@code BlockState} 通常只有几十种，所以命中率极高。
+ *       真正还会线性扫的是"区域内模式的逐坐标判定"。</li>
+ *   <li>{@link #alphaNow} 里为了处理"活塞推动中的方块"会去访问
  *       {@code Minecraft.getInstance().level}（客户端世界），这是<b>跨线程访问客户端世界</b>，
  *       只在 {@code carried} 为真时触发，属于可接受的脆弱点但值得警惕。</li>
  *   <li>{@link #getAlpha} 有副作用：命中时会往 {@link HiddenSections} 里记账。
@@ -155,6 +173,9 @@ public final class SelectiveRenderingManager {
 	/** 裁剪允许的最大碎片数，超过就放弃整个操作（见 {@link #subtractRegions}）。 */
 	private static final int MAX_SUBTRACT_FRAGMENTS = 4096;
 
+	/** 每线程缓存的最大条目数，超过就整体清空（见 {@link StateCache}）。 */
+	private static final int MAX_CACHED_ENTRIES = 4096;
+
 	/** 光照任务代际号：每排一个新任务就 +1，旧任务看到代号变了就自行退出。 */
 	private static final AtomicLong RELIGHT_GENERATION = new AtomicLong();
 
@@ -163,7 +184,7 @@ public final class SelectiveRenderingManager {
 	 *
 	 * <p>删掉 / 裁掉一个选区之后，那块地方的光照仍然带着我们污染过的数据
 	 * （当时那些方块在光照引擎里被当成空气），必须再算一遍才能恢复。
-	 * 但它们已经不在 {@link #regionSnapshot} 里，所以要单独记一份，
+	 * 但它们已经不在选区快照里，所以要单独记一份，
 	 * 每次重算光照时一起带上。
 	 *
 	 * <p>只增不减：见 {@link #relight()} 里"新任务的目标必须是旧任务的超集"的说明。
@@ -264,42 +285,152 @@ public final class SelectiveRenderingManager {
 	 */
 	public static final boolean DEFAULT_PASS_THROUGH = true;
 
-	private static volatile Mode mode = DEFAULT_MODE;
-	private static volatile int transparency = DEFAULT_TRANSPARENCY;
-	private static volatile RecordMode recordMode = DEFAULT_RECORD_MODE;
-	private static volatile RecordApplyMode recordApplyMode = DEFAULT_RECORD_APPLY_MODE;
-	private static volatile boolean invert = DEFAULT_INVERT;
-	private static volatile List<BlockMatchRule> ruleSnapshot = List.of();
-	private static volatile List<BlockMatchRule> recordSnapshot = List.of();
-	private static volatile List<Region> regionSnapshot = List.of();
-	private static volatile List<Preset> presetSnapshot = List.of();
+	// ─────────────────────────────────────────────────────────────────────────
+	// 可变状态：只在 synchronized (LOCK) 内读写。
+	// 渲染线程一律读下面的 config 快照，不要直接读这些字段。
+	// ─────────────────────────────────────────────────────────────────────────
 
-	private static volatile String wand = DEFAULT_WAND;
+	private static Mode mode = DEFAULT_MODE;
+	private static int transparency = DEFAULT_TRANSPARENCY;
+	private static RecordMode recordMode = DEFAULT_RECORD_MODE;
+	private static RecordApplyMode recordApplyMode = DEFAULT_RECORD_APPLY_MODE;
+	private static boolean invert = DEFAULT_INVERT;
+	private static String wand = DEFAULT_WAND;
+	private static boolean fullBright = DEFAULT_FULL_BRIGHT;
+	private static boolean passThrough = DEFAULT_PASS_THROUGH;
+	private static BlockPos corner1;
+	private static BlockPos corner2;
+	private static AABB region;
 
 	/**
-	 * "夜视"是否开启（默认开启）。
+	 * 当前生效的配置快照。所有渲染侧读取都走这里。
 	 *
-	 * <p>开启后两件事：
-	 * <ol>
-	 *   <li>{@code LightmapMixin} 把光照贴图整块刷成白色，全局按全亮渲染
-	 *       ——参照 meteor 的 Xray（它把这一步硬编码了，这里做成可开关的选项）；</li>
-	 *   <li><b>彻底跳过光照相关的计算</b>：既不在光照引擎 / AO 里把隐藏方块伪装成空气
-	 *       （那是全 Mod 最热的调用点），也不再排光照重算任务（{@link #relight()}）。</li>
-	 * </ol>
-	 * 第 2 点是性能大头：既然画面本来就是全亮的，"让光穿过被隐藏的方块"这件事
-	 * 就完全没有意义了，省掉它能把 {@code LightEngine.getState} 上百万次的
-	 * 判定开销直接抹掉。
+	 * <p>它是<b>唯一一个</b>被渲染线程读的可变字段：一次 {@link #publish()} 整体替换，
+	 * 因此不会出现"读到一半新一半旧"的情况。
 	 */
-	private static volatile boolean fullBright = DEFAULT_FULL_BRIGHT;
+	private static volatile RenderConfig config = RenderConfig.initial();
 
-	private static volatile boolean passThrough = DEFAULT_PASS_THROUGH;
-
-	private static volatile BlockPos corner1;
-	private static volatile BlockPos corner2;
-
-	private static volatile AABB region;
-
+	/**
+	 * "当前选中的角点"（-1 = 未选中）。
+	 *
+	 * <p>它<b>不</b>在 {@link RenderConfig} 里，因为 {@link #selectCorner} 刻意改它
+	 * 但不落盘也不重建（只是切换线框的高亮），如果放进快照就必须再 publish 一次。
+	 * 它只影响 UI，不参与任何渲染判定，独立 volatile 足够。
+	 */
 	private static volatile int selectedCorner = -1;
+
+	/** 每线程一份的判定缓存，见 {@link StateCache}。 */
+	private static final ThreadLocal<StateCache> STATE_CACHE = ThreadLocal.withInitial(StateCache::new);
+
+	/**
+	 * 一份<b>不可变</b>的渲染配置。
+	 *
+	 * <p>把原来散落的 mode / transparency / invert / 名单 / 选区 / ... 合成一条记录，
+	 * 由 {@link #publish()} 一次生成、一次发布。渲染线程拿到它之后，
+	 * 整个判定过程里不再读任何别的共享可变状态。
+	 *
+	 * <p>{@code alpha} 与 {@code union} 是构造时算好的派生量：
+	 * 前者省掉每次判定的 {@code Math.round}，后者是"所有选区的外接盒"，
+	 * 用来在逐坐标判定之前做一次快速否定。
+	 */
+	private record RenderConfig(
+		Mode mode,
+		int transparency,
+		boolean invert,
+		List<BlockMatchRule> rules,
+		List<BlockMatchRule> recorded,
+		List<Region> regions,
+		List<Preset> presets,
+		RecordMode recordMode,
+		RecordApplyMode recordApplyMode,
+		String wand,
+		boolean fullBright,
+		boolean passThrough,
+		BlockPos corner1,
+		BlockPos corner2,
+		AABB region,
+		int alpha,
+		Region union
+	) {
+		private static RenderConfig initial() {
+			return of(
+				DEFAULT_MODE, DEFAULT_TRANSPARENCY, DEFAULT_INVERT,
+				List.of(), List.of(), List.of(), List.of(),
+				DEFAULT_RECORD_MODE, DEFAULT_RECORD_APPLY_MODE,
+				DEFAULT_WAND, DEFAULT_FULL_BRIGHT, DEFAULT_PASS_THROUGH,
+				null, null, null
+			);
+		}
+
+		private static RenderConfig of(
+			Mode mode,
+			int transparency,
+			boolean invert,
+			List<BlockMatchRule> rules,
+			List<BlockMatchRule> recorded,
+			List<Region> regions,
+			List<Preset> presets,
+			RecordMode recordMode,
+			RecordApplyMode recordApplyMode,
+			String wand,
+			boolean fullBright,
+			boolean passThrough,
+			@Nullable BlockPos corner1,
+			@Nullable BlockPos corner2,
+			@Nullable AABB region
+		) {
+			return new RenderConfig(
+				mode, transparency, invert,
+				rules, recorded, regions, presets,
+				recordMode, recordApplyMode,
+				wand, fullBright, passThrough,
+				corner1, corner2, region,
+				Math.round(255F * (MAX_TRANSPARENCY - transparency) / MAX_TRANSPARENCY),
+				unionOf(regions)
+			);
+		}
+	}
+
+	/**
+	 * 每线程一份的判定缓存。
+	 *
+	 * <h2>为什么必须是每线程</h2>
+	 * <p>{@link #alphaNow} 会被区块构建线程、光照线程、渲染线程并发调用，
+	 * 用共享 {@code HashMap} 会有数据竞争。每线程一份则完全无锁。
+	 *
+	 * <h2>失效策略</h2>
+	 * <p>缓存只在 {@code owner == 当前的 config} 时有效：{@link #publish()} 每次都会
+	 * 生成新的 {@link RenderConfig} 实例，所以"配置变了"= "owner 变了"，
+	 * 一次引用比较就能判断失效，不需要版本号，也不会漏掉任何一条 {@code commit*} 路径。
+	 *
+	 * <h2>三条缓存</h2>
+	 * <ul>
+	 *   <li>{@code alpha}：{@code BlockState → alpha}。<b>只在非区域模式</b>（BLACKLIST /
+	 *       WHITELIST）下用——那时判定结果与坐标无关，只与方块状态有关。</li>
+	 *   <li>{@code listed}：{@code BlockState → 是否命中名单}。区域模式下名单判定
+	 *       同样与坐标无关，可以单独缓存，省掉逐规则的线性扫描。</li>
+	 *   <li>{@code sections}：{@code section → 是否与任一选区相交}。一个 section 有 4096 格，
+	 *       而不相交的 section 根本不用逐坐标扫，这是区域模式下最有效的一层。</li>
+	 * </ul>
+	 *
+	 * <p>条目数有上限 {@link #MAX_CACHED_ENTRIES}，超了就整体清空。
+	 * 换维度 / 换世界时缓存内容自然失效（BlockState 变了、坐标变了），
+	 * 而 {@code owner} 不变，所以上限保护是必要的。
+	 */
+	private static final class StateCache {
+		private RenderConfig owner;
+
+		private final Map<BlockState, Integer> alpha = new HashMap<>();
+		private final Map<BlockState, Integer> listed = new HashMap<>();
+		private final Map<Long, Integer> sections = new HashMap<>();
+
+		private void reset(RenderConfig owner) {
+			this.owner = owner;
+			this.alpha.clear();
+			this.listed.clear();
+			this.sections.clear();
+		}
+	}
 
 	private SelectiveRenderingManager() {
 	}
@@ -375,7 +506,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static Mode getMode() {
-		return mode;
+		return config.mode();
 	}
 
 	/**
@@ -397,11 +528,11 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static void cycleMode(int direction) {
-		setMode(mode.cycle(direction));
+		setMode(getMode().cycle(direction));
 	}
 
 	public static int getTransparency() {
-		return transparency;
+		return config.transparency();
 	}
 
 	/**
@@ -428,11 +559,11 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static BlockPos getCorner(int index) {
-		return index == 0 ? corner1 : corner2;
+		return index == 0 ? config.corner1() : config.corner2();
 	}
 
 	public static AABB regionBox() {
-		return region;
+		return config.region();
 	}
 
 	public static void setCorner(int index, BlockPos pos) {
@@ -568,7 +699,7 @@ public final class SelectiveRenderingManager {
 
 		Log.say("[state] {} region(s) recorded", added);
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			for (Region box : boxes) {
 				HiddenSections.mark(box.box());
 			}
@@ -655,7 +786,7 @@ public final class SelectiveRenderingManager {
 
 		Log.say("[state] regions clipped by recorder: {} -> {}", before, kept);
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			// 这里拿不到被挖掉的具体范围（裁剪是逐碎片进行的），直接全量重建最简单可靠
 			rebuildChunks();
 		}
@@ -676,7 +807,7 @@ public final class SelectiveRenderingManager {
 
 		Log.say("[state] region added: {}", newRegion.toSource());
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			HiddenSections.mark(newRegion.box());
 			relight();
 		}
@@ -710,12 +841,12 @@ public final class SelectiveRenderingManager {
 
 		Log.say("[state] {} region(s) removed", dropped.size());
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			for (Region region : dropped) {
 				HiddenSections.mark(region.box());
 			}
 
-			// 被删掉的选区已经不在 regionSnapshot 里了，但它的光照仍需还原
+			// 被删掉的选区已经不在快照里了，但它的光照仍需还原
 			retire(dropped);
 			relight();
 		}
@@ -807,7 +938,7 @@ public final class SelectiveRenderingManager {
 
 		Log.say("[state] regions clipped by {}: {} -> {}", cut.toSource(), before.size(), kept);
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			for (Region region : before) {
 				HiddenSections.mark(region.box());
 			}
@@ -821,11 +952,11 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static List<Region> regions() {
-		return regionSnapshot;
+		return config.regions();
 	}
 
 	public static List<String> regionSources() {
-		return regionSnapshot.stream().map(Region::toSource).toList();
+		return config.regions().stream().map(Region::toSource).toList();
 	}
 
 	public static void setRegionSources(List<String> sources) {
@@ -851,7 +982,7 @@ public final class SelectiveRenderingManager {
 			commit();
 		}
 
-		if (mode.usesRegion()) {
+		if (getMode().usesRegion()) {
 			rebuildChunks();
 		}
 	}
@@ -909,7 +1040,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static List<String> ruleSources() {
-		return ruleSnapshot.stream().map(BlockMatchRule::source).toList();
+		return config.rules().stream().map(BlockMatchRule::source).toList();
 	}
 
 	public static void setRuleSources(List<String> sources) {
@@ -935,7 +1066,7 @@ public final class SelectiveRenderingManager {
 			commit();
 		}
 
-		if (mode.usesList()) {
+		if (getMode().usesList()) {
 			rebuildChunks();
 		}
 	}
@@ -952,7 +1083,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static List<String> recordSources() {
-		return recordSnapshot.stream().map(BlockMatchRule::source).toList();
+		return config.recorded().stream().map(BlockMatchRule::source).toList();
 	}
 
 	/**
@@ -1002,7 +1133,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static RecordMode getRecordMode() {
-		return recordMode;
+		return config.recordMode();
 	}
 
 	public static void setRecordMode(RecordMode newMode) {
@@ -1019,7 +1150,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static RecordApplyMode getRecordApplyMode() {
-		return recordApplyMode;
+		return config.recordApplyMode();
 	}
 
 	public static void setRecordApplyMode(RecordApplyMode newMode) {
@@ -1040,7 +1171,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static boolean isInvert() {
-		return invert;
+		return config.invert();
 	}
 
 	/**
@@ -1071,7 +1202,7 @@ public final class SelectiveRenderingManager {
 	 * 玩家再勾一次反而把偏好值改没了。
 	 */
 	public static boolean isPassThrough() {
-		return passThrough;
+		return config.passThrough();
 	}
 
 	/**
@@ -1095,7 +1226,8 @@ public final class SelectiveRenderingManager {
 	 * 与魔杖上线前的行为一致。
 	 */
 	public static boolean isPassThroughActive() {
-		return passThrough && mode != Mode.OFF && !SelectiveRendering.isWandHeld();
+		RenderConfig current = config;
+		return current.passThrough() && current.mode() != Mode.OFF && !SelectiveRendering.isWandHeld();
 	}
 
 	/**
@@ -1120,7 +1252,7 @@ public final class SelectiveRenderingManager {
 
 	/**
 	 * 记录器用的判定：这个方块是不是"我们关心的那一类"。
-	 * 名单是 {@link #RECORDED}（配置里的 {@code recorded}），过滤方向由 {@link #recordMode} 决定。
+	 * 名单是 {@link #RECORDED}（配置里的 {@code recorded}），过滤方向由 {@code recordMode} 决定。
 	 * 与渲染用的 {@link #RULES} 完全独立。
 	 *
 	 * <p><b>名单为空时一律返回 true</b>（不过滤）。理由：默认现在是白名单，
@@ -1128,7 +1260,8 @@ public final class SelectiveRenderingManager {
 	 * 与其静默失效，不如退化成"记录所有变化"，并在 {@code BlockChangeRecorder.start()} 里提示一句。
 	 */
 	public static boolean matchesRecorded(BlockState state, boolean moving) {
-		List<BlockMatchRule> rules = recordSnapshot;
+		RenderConfig current = config;
+		List<BlockMatchRule> rules = current.recorded();
 		if (rules.isEmpty()) {
 			return true;
 		}
@@ -1142,7 +1275,7 @@ public final class SelectiveRenderingManager {
 			}
 		}
 
-		return recordMode == RecordMode.LISTED ? listed : !listed;
+		return current.recordMode() == RecordMode.LISTED ? listed : !listed;
 	}
 
 	public static int getAlpha(BlockState state, BlockPos pos) {
@@ -1181,19 +1314,31 @@ public final class SelectiveRenderingManager {
 	 * 往 {@link HiddenSections} 里写既没有意义（很多位置根本不在已加载的 section 里）
 	 * 又是从非渲染线程改全局状态。所以这两条路径用本方法。
 	 *
+	 * <h2>缓存</h2>
+	 * <p>判定结果被拆成三层缓存（见 {@link StateCache}）：
+	 * <ol>
+	 *   <li>非区域模式（BLACKLIST / WHITELIST）：结果与坐标无关，直接按 {@code BlockState} 缓存；</li>
+	 *   <li>区域模式的"是否命中名单"：同样与坐标无关，按 {@code BlockState} 缓存；</li>
+	 *   <li>区域模式的"是否在选区内"：先比外接盒快速否定，再按 <b>section</b> 缓存
+	 *       "这个 section 是否与任一选区相交"——不相交的 section 一次都不用扫。</li>
+	 * </ol>
+	 * 活塞推动中的方块（{@code carried}）不进缓存：它的 state / 坐标会被现场改写，
+	 * 而且 {@code [moving=true]} 这类规则依赖 {@code moving} 参数，不是纯函数。
+	 *
 	 * @return 同 {@link #getAlpha}：-1 表示正常渲染，否则是顶点 alpha
 	 */
 	public static int alphaNow(BlockState state, BlockPos pos, boolean moving) {
-		Mode current = mode;
-		if (current == Mode.OFF) {
+		RenderConfig current = config;
+		Mode mode = current.mode();
+		if (mode == Mode.OFF) {
 			return -1;
 		}
 
-		boolean needsRegion = current.usesRegion();
-		boolean needsList = current.usesList();
+		boolean needsRegion = mode.usesRegion();
+		boolean needsList = mode.usesList();
 
-		List<Region> regions = needsRegion ? regionSnapshot : List.of();
-		List<BlockMatchRule> rules = needsList ? ruleSnapshot : List.of();
+		List<Region> regions = needsRegion ? current.regions() : List.of();
+		List<BlockMatchRule> rules = needsList ? current.rules() : List.of();
 
 		// 条件不齐就直接不做任何淡化。
 		// 这一点在"反转"下尤其重要：反转会把命中集合取反，
@@ -1212,17 +1357,48 @@ public final class SelectiveRenderingManager {
 				BlockState moved = piston.getMovedState();
 				if (moved != null) {
 					state = moved;
+					// 这里刻意用 relative() 新建坐标而不是复用 scratch：
+					// 调用方（例如 getAlphaAt）往往还持有传进来的那个 pos 并会在返回后再用一次
+					// （HiddenSections.note），复用可变坐标会把它改掉。活塞路径很罕见，一次分配无所谓。
 					pos = pos.relative(piston.getMovementDirection().getOpposite());
 				}
 			}
 		}
 
-		// 注意：下面两次判定都是线性扫描，规模 = 名单条数 + 选区块数，没有缓存。
-		boolean listed = matches(state, carried, rules);
+		StateCache cache = STATE_CACHE.get();
+		if (cache.owner != current) {
+			cache.reset(current);
+		}
 
-		boolean inside = isInside(pos, regions);
+		// 第一层：整个结果按 BlockState 缓存（只在与坐标无关的模式里成立）
+		boolean cacheable = !needsRegion && !carried;
+		if (cacheable) {
+			Integer cached = cache.alpha.get(state);
+			if (cached != null) {
+				return cached;
+			}
+		}
 
-		boolean matched = switch (current) {
+		boolean listed = false;
+		if (needsList) {
+			Integer cached = carried ? null : cache.listed.get(state);
+			if (cached != null) {
+				listed = cached != 0;
+			}
+			else {
+				listed = matches(state, carried, rules);
+				if (!carried) {
+					remember(cache.listed, state, listed ? 1 : 0);
+				}
+			}
+		}
+
+		boolean inside = false;
+		if (needsRegion) {
+			inside = insideRegion(pos, regions, current.union(), cache);
+		}
+
+		boolean matched = switch (mode) {
 			case REGION_INSIDE_LISTED -> inside && listed;
 			case REGION_INSIDE_UNLISTED -> inside && !listed;
 			case REGION_INSIDE -> inside;
@@ -1236,13 +1412,102 @@ public final class SelectiveRenderingManager {
 
 		// 反转：改成淡化"没命中"的那一批。于是"选区内 + 名单内 + 反转"
 		// 就等于"只显示选区内的指定方块"，这是原来 9 个模式表达不出来的。
-		boolean hidden = invert != matched;
+		boolean hidden = current.invert() != matched;
 
-		if (!hidden) {
-			return -1;
+		int result = hidden ? current.alpha() : -1;
+
+		if (cacheable) {
+			remember(cache.alpha, state, result);
 		}
 
-		return alpha();
+		return result;
+	}
+
+	/**
+	 * "这个坐标是否落在任一选区内"，带两级快速否定。
+	 *
+	 * <ol>
+	 *   <li><b>外接盒</b>：{@code union} 是所有选区的包围盒，落在外面的坐标必然不在任何选区里；</li>
+	 *   <li><b>section 相交</b>：一个 section 有 4096 格，先花一次代价判断
+	 *       "这个 section 有没有和任一选区相交"，不相交就整段跳过。</li>
+	 * </ol>
+	 */
+	private static boolean insideRegion(BlockPos pos, List<Region> regions, @Nullable Region union, StateCache cache) {
+		if (union == null || !union.contains(pos)) {
+			return false;
+		}
+
+		long section = SectionPos.asLong(pos);
+		Integer hit = cache.sections.get(section);
+		if (hit == null) {
+			hit = sectionIntersects(
+				SectionPos.x(section) * 16,
+				SectionPos.y(section) * 16,
+				SectionPos.z(section) * 16,
+				regions
+			) ? 1 : 0;
+			remember(cache.sections, section, hit);
+		}
+
+		return hit != 0 && isInside(pos, regions);
+	}
+
+	/**
+	 * section（原点 {@code sx,sy,sz}，边长 16）是否与任一选区相交。
+	 * 只对 <b>section 覆盖到的那一块</b>做重叠判断，所以比逐坐标判定便宜三个数量级。
+	 */
+	private static boolean sectionIntersects(int sx, int sy, int sz, List<Region> regions) {
+		int maxX = sx + 15;
+		int maxY = sy + 15;
+		int maxZ = sz + 15;
+
+		for (Region region : regions) {
+			if (region.max().getX() >= sx && region.min().getX() <= maxX
+				&& region.max().getY() >= sy && region.min().getY() <= maxY
+				&& region.max().getZ() >= sz && region.min().getZ() <= maxZ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/** 所有选区的包围盒；没有选区时返回 null。 */
+	@Nullable
+	private static Region unionOf(List<Region> regions) {
+		if (regions.isEmpty()) {
+			return null;
+		}
+
+		int minX = Integer.MAX_VALUE;
+		int minY = Integer.MAX_VALUE;
+		int minZ = Integer.MAX_VALUE;
+		int maxX = Integer.MIN_VALUE;
+		int maxY = Integer.MIN_VALUE;
+		int maxZ = Integer.MIN_VALUE;
+
+		for (Region region : regions) {
+			BlockPos min = region.min();
+			BlockPos max = region.max();
+
+			minX = Math.min(minX, min.getX());
+			minY = Math.min(minY, min.getY());
+			minZ = Math.min(minZ, min.getZ());
+			maxX = Math.max(maxX, max.getX());
+			maxY = Math.max(maxY, max.getY());
+			maxZ = Math.max(maxZ, max.getZ());
+		}
+
+		return new Region(new BlockPos(minX, minY, minZ), new BlockPos(maxX, maxY, maxZ));
+	}
+
+	/** 写入一条缓存，超过 {@link #MAX_CACHED_ENTRIES} 就整体清空（防止换世界后无限膨胀）。 */
+	private static <K> void remember(Map<K, Integer> map, K key, int value) {
+		if (map.size() >= MAX_CACHED_ENTRIES) {
+			map.clear();
+		}
+
+		map.put(key, value);
 	}
 
 	public static int getFluidAlpha(BlockState state, BlockPos pos) {
@@ -1260,11 +1525,12 @@ public final class SelectiveRenderingManager {
 	 * 因为那时流体直接被 {@code ci.cancel()} 掉了。
 	 */
 	public static boolean shouldRenderFluidsTranslucent() {
-		if (mode == Mode.OFF) {
+		RenderConfig current = config;
+		if (current.mode() == Mode.OFF) {
 			return false;
 		}
 
-		return transparency < MAX_TRANSPARENCY;
+		return current.transparency() < MAX_TRANSPARENCY;
 	}
 
 	public static boolean isHidden(BlockState state, BlockPos pos) {
@@ -1273,6 +1539,30 @@ public final class SelectiveRenderingManager {
 
 	public static boolean isHidden(BlockGetter level, BlockPos pos) {
 		return getAlpha(level.getBlockState(pos), pos) >= 0;
+	}
+
+	/**
+	 * {@link #isHidden} 的<b>工作线程安全版</b>。
+	 *
+	 * <h2>为什么单独开一个</h2>
+	 * <p>遮挡图（原版 {@code VisGraph.setOpaque}、Sodium {@code DirectionalVisGraph.setOpaque}）
+	 * 与流体的面判定跑在<b>区块构建工作线程</b>上，以前走 {@link #isHiddenAt}，
+	 * 后者内部会 {@code Minecraft.getInstance().level.getBlockState(pos)}——
+	 * 这是从工作线程读客户端世界，也不一定对应正在构建的那一份数据。
+	 *
+	 * <p>这些位置本来就有一个合法的、线程隔离的数据源：
+	 * 原版是 {@code SectionCompiler.compile} 的 {@code RenderSectionRegion}，
+	 * Sodium 是 {@code BlockRenderCache.getWorldSlice()}。由调用方把它传进来即可。
+	 *
+	 * <p>另外它<b>不记账</b>：遮挡图对每个实心的格子都会问一次（一个 section 4096 次），
+	 * 而这些位置在真正出网格的路径里已经被 {@link #getAlpha} 记过了，再记一遍只是浪费。
+	 */
+	public static boolean isHiddenIn(@Nullable BlockGetter level, BlockPos pos) {
+		if (level == null) {
+			return false;
+		}
+
+		return alphaNow(level.getBlockState(pos), pos, false) >= 0;
 	}
 
 	/**
@@ -1298,15 +1588,17 @@ public final class SelectiveRenderingManager {
 	 * @param state 该位置真实的方块状态（由调用方先取好）
 	 */
 	public static BlockState airIfHidden(BlockState state, BlockPos pos) {
+		RenderConfig current = config;
+
 		// 模式关闭 = 本 Mod 对整个管线零干预。
 		// 下面那个 fullBright 分支不看分方块、一律"当空气"，如果这里不先短路，
 		// 夜视（默认开启）+ 模式关闭时，光照引擎和 AO 会被全局改成"当空气"——
 		// 结果就是全世界的 AO 消失、客户端光照数据按到处通透来算。
-		if (mode == Mode.OFF) {
+		if (current.mode() == Mode.OFF) {
 			return state;
 		}
 
-		if (fullBright) {
+		if (current.fullBright()) {
 			// 夜视：一律当空气，不再逐方块判定。
 			//
 			// 对光照引擎来说：画面本来就全亮，"让光穿过被淡化的方块"毫无意义，
@@ -1323,7 +1615,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static String getWand() {
-		return wand;
+		return config.wand();
 	}
 
 	public static void setWand(String value) {
@@ -1343,7 +1635,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static boolean isFullBright() {
-		return fullBright;
+		return config.fullBright();
 	}
 
 	/**
@@ -1353,7 +1645,8 @@ public final class SelectiveRenderingManager {
 	 * 有任何影响，夜视（改光照贴图）也不例外。
 	 */
 	public static boolean isNightVisionActive() {
-		return mode != Mode.OFF && fullBright;
+		RenderConfig current = config;
+		return current.mode() != Mode.OFF && current.fullBright();
 	}
 
 	/**
@@ -1364,7 +1657,7 @@ public final class SelectiveRenderingManager {
 	 * 顺序不能反——{@link #relight()} 是否工作取决于当前 {@code fullBright} 的值。
 	 */
 	public static void setFullBright(boolean value) {
-		if (value == fullBright) {
+		if (value == isFullBright()) {
 			return;
 		}
 
@@ -1385,10 +1678,11 @@ public final class SelectiveRenderingManager {
 	/**
 	 * 只知道坐标、不知道方块状态时用的便捷版本（方块实体渲染用）。
 	 * 它会现查 {@code minecraft.level.getBlockState(pos)}，
-	 * 因此<b>只能在客户端线程调用</b>，不要从区块构建线程用。
+	 * 因此<b>只能在客户端线程调用</b>，不要从区块构建线程用
+	 * （工作线程请改用 {@link #isHiddenIn}）。
 	 */
 	public static int getAlphaAt(BlockPos pos) {
-		if (mode == Mode.OFF) {
+		if (getMode() == Mode.OFF) {
 			return -1;
 		}
 
@@ -1407,7 +1701,7 @@ public final class SelectiveRenderingManager {
 	 * 记账会把非渲染线程的写入混进渲染状态，所以给兼容层用的必须是这条无副作用的路径。
 	 */
 	public static int alphaAt(BlockPos pos) {
-		if (mode == Mode.OFF) {
+		if (getMode() == Mode.OFF) {
 			return -1;
 		}
 
@@ -1426,11 +1720,11 @@ public final class SelectiveRenderingManager {
 	 * 否则隔着几格淡化方块看活塞/生物，它们会被误剔除（时隐时现）。
 	 */
 	public static boolean isFadedCube(int x, int y, int z) {
-		return alphaAt(new BlockPos(x, y, z)) >= 0;
+		return alphaAt(BlockPosScratch.at(x, y, z)) >= 0;
 	}
 
 	public static int getHiddenAlpha() {
-		return alpha();
+		return config.alpha();
 	}
 
 	private static boolean matches(BlockState state, boolean moving, List<BlockMatchRule> rules) {
@@ -1442,8 +1736,6 @@ public final class SelectiveRenderingManager {
 
 		return false;
 	}
-
-
 
 	/**
 	 * "增量重建"：只重建被隐藏过、且数量不多的那些 section。
@@ -1465,11 +1757,12 @@ public final class SelectiveRenderingManager {
 	 *              增量重建即可；反之意味着大量方块的可见性翻转，只能全量重建。
 	 */
 	private static void rebuildAfterListChange(boolean added) {
+		Mode mode = getMode();
 		if (!mode.usesList()) {
 			return;
 		}
 
-		if (invert) {
+		if (isInvert()) {
 			// 反转下"命中集合"和"被淡化集合"是互补的，上面的增量推断整个反了过来，
 			// 直接全量重建最稳（名单增删本来就不是高频操作）。
 			rebuildChunks();
@@ -1508,7 +1801,7 @@ public final class SelectiveRenderingManager {
 	 * {@code level.queueLightUpdate(...)}，每批只做 2000 个位置，避免卡主线程。
 	 */
 	private static void relight() {
-		if (fullBright) {
+		if (isFullBright()) {
 			// 夜视模式下我们不伪造光照，也就没有"需要还原"的数据
 			return;
 		}
@@ -1521,8 +1814,8 @@ public final class SelectiveRenderingManager {
 		// 目标 = 当前所有选区 + 历史删除过的区域。两者都是"光照可能被我们污染过"的地方。
 		List<Region> targets;
 		synchronized (RETIRED_REGIONS) {
-			targets = new ArrayList<>(regionSnapshot.size() + RETIRED_REGIONS.size());
-			targets.addAll(regionSnapshot);
+			targets = new ArrayList<>(config.regions().size() + RETIRED_REGIONS.size());
+			targets.addAll(config.regions());
 
 			for (Region region : RETIRED_REGIONS) {
 				if (!targets.contains(region)) {
@@ -1543,7 +1836,7 @@ public final class SelectiveRenderingManager {
 		// queueLightUpdate(this) 续命），帧率掉下去就再也回不来——只能退世界重进。
 		//
 		// 这个"作废旧的"只有在"新目标 ⊇ 旧目标"时才安全：上面的 targets 永远包含
-		// 全部 regionSnapshot 和全部 RETIRED_REGIONS，所以成立。
+		// 全部选区快照和全部 RETIRED_REGIONS，所以成立。
 		long generation = RELIGHT_GENERATION.incrementAndGet();
 		level.queueLightUpdate(new Relight(targets, generation));
 	}
@@ -1685,14 +1978,6 @@ public final class SelectiveRenderingManager {
 		);
 	}
 
-	/**
-	 * 透明度百分比 → 顶点 alpha。
-	 * 透明度 100% → alpha 0（完全隐藏）；透明度 0% → alpha 255（不透明）。
-	 */
-	private static int alpha() {
-		return Math.round(255F * (MAX_TRANSPARENCY - transparency) / MAX_TRANSPARENCY);
-	}
-
 	private static boolean isInside(BlockPos pos, List<Region> regions) {
 		for (Region added : regions) {
 			if (added.contains(pos)) {
@@ -1704,7 +1989,7 @@ public final class SelectiveRenderingManager {
 	}
 
 	public static List<Preset> presets() {
-		return presetSnapshot;
+		return config.presets();
 	}
 
 	/**
@@ -1793,13 +2078,29 @@ public final class SelectiveRenderingManager {
 
 	/**
 	 * 用当前可变集合刷新不可变快照。<b>必须在持有 {@link #LOCK} 时调用。</b>
-	 * 渲染线程只读快照，所以这里必须整体替换（不能原地改）。
+	 *
+	 * <p>这里会生成一个<b>全新的</b> {@link RenderConfig} 实例并整体替换 {@link #config}。
+	 * 换实例本身就是缓存失效信号：{@link StateCache} 靠 {@code owner != config} 判断，
+	 * 所以任何一条 {@code commit*} 路径都会自动让所有线程的缓存失效，不需要额外清理。
 	 */
 	private static void publish() {
-		ruleSnapshot = List.copyOf(RULES);
-		recordSnapshot = List.copyOf(RECORDED);
-		regionSnapshot = List.copyOf(REGIONS);
-		presetSnapshot = List.copyOf(PRESETS);
+		config = RenderConfig.of(
+			mode,
+			transparency,
+			invert,
+			List.copyOf(RULES),
+			List.copyOf(RECORDED),
+			List.copyOf(REGIONS),
+			List.copyOf(PRESETS),
+			recordMode,
+			recordApplyMode,
+			wand,
+			fullBright,
+			passThrough,
+			corner1,
+			corner2,
+			region
+		);
 	}
 
 	/**

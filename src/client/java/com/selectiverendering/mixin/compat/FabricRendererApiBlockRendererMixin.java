@@ -1,5 +1,6 @@
 package com.selectiverendering.mixin.compat;
 
+import com.selectiverendering.BlockPosScratch;
 import com.selectiverendering.MovingBlockRenderContext;
 import com.selectiverendering.SelectiveRenderingManager;
 import net.fabricmc.fabric.api.client.renderer.v1.mesh.MutableQuadView;
@@ -113,8 +114,11 @@ public class FabricRendererApiBlockRendererMixin {
 			return;
 		}
 
-		BlockPos neighbourPos = pos.relative(direction);
-		boolean hidden = SelectiveRenderingManager.isHidden(blockState, pos);
+		// "自己"的 alpha 直接读 tesselateBlock 入口算好的那份，不要再判一遍：
+		// shouldCullFace 每个面都要问一次，而同一个方块的 6 个面答案完全一样。
+		boolean hidden = selectiveRendering$alpha >= 0;
+
+		BlockPos neighbourPos = BlockPosScratch.offset(pos, direction);
 		boolean neighbourHidden = SelectiveRenderingManager.isHidden(level.getBlockState(neighbourPos), neighbourPos);
 
 		if (hidden != neighbourHidden) {

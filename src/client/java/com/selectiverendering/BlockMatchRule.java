@@ -6,12 +6,14 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.Property;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 一条"方块匹配规则"，由玩家在配置里写的字符串解析而来。
@@ -41,12 +43,61 @@ import java.util.Map;
  * <p>注意：状态名只在"明确指定了方块"时才校验。
  * 标签规则（{@code #...}）和通配规则（{@code *}）无法校验，
  * 因为一个标签下各方块的状态集合并不相同——这正是 {@code *[moving=true]} 这类规则想要的弹性。
+ *
+ * <h2>为什么状态条件是"预编译"的</h2>
+ * <p>{@link #matches} 处在全 Mod 最热的路径上：每个方块、每次判定、每条规则都要跑一遍。
+ * 早期实现在匹配时对每个状态条件做
+ * <pre>
+ *   state.getBlock().getStateDefinition().getProperty("waterlogged")   // 一次字符串查表
+ *   String.valueOf(state.getValue(property)).toLowerCase()             // 一次字符串转换
+ *        .equals("false")                                              // 一次字符串比较
+ * </pre>
+ * 还要为 {@code states.entrySet()} 分配一个迭代器。
+ *
+ * <p>而<b>一个方块的状态定义是不变的</b>，所以这些可以在第一次遇到某个方块时算一次：
+ * 把 {@code ("waterlogged", "false")} 解析成 {@code (WaterloggedProperty, Boolean.FALSE)}，
+ * 之后每次匹配就只剩 {@code state.getValue(property) == 期望值}。
+ * 解析结果按 {@link Block} 缓存（见 {@link #RESOLVED}），
+ * 一个世界里遇到的方块种类有限，缓存本身也很小。
+ *
+ * <p>另外：没有任何状态条件的规则（绝大多数）在方块/标签判定之后直接返回，
+ * 完全不碰缓存。
  */
-public record BlockMatchRule(String source, @Nullable Block block, @Nullable TagKey<Block> tag, Map<String, String> states) {
+public final class BlockMatchRule {
 	private static final String[] ANY = {"*", "%", "?"};
 
 	/** 伪状态名：不对应真实的 {@code Property}，表示"是否被活塞推动"。 */
 	public static final String MOVING = "moving";
+
+	private final String source;
+	private final @Nullable Block block;
+	private final @Nullable TagKey<Block> tag;
+
+	/** 状态条件的名字（与 {@link #stateValues} 一一对应，顺序一致）。 */
+	private final String[] stateNames;
+
+	/** 状态条件的期望值（小写）。 */
+	private final String[] stateValues;
+
+	/**
+	 * {@code Block → 解析好的状态条件}。
+	 *
+	 * <p>用 {@link ConcurrentHashMap} 是因为 {@link #matches} 会被区块构建线程和光照线程并发调用。
+	 * 内容只增不删，且方块的状态定义在整个进程生命周期内不变，所以不需要失效机制。
+	 */
+	private final Map<Block, Resolved> resolved = new ConcurrentHashMap<>();
+
+	private BlockMatchRule(String source, @Nullable Block block, @Nullable TagKey<Block> tag, String[] stateNames, String[] stateValues) {
+		this.source = source;
+		this.block = block;
+		this.tag = tag;
+		this.stateNames = stateNames;
+		this.stateValues = stateValues;
+	}
+
+	public String source() {
+		return this.source;
+	}
 
 	public boolean matches(BlockState state) {
 		return matches(state, false);
@@ -58,30 +109,101 @@ public record BlockMatchRule(String source, @Nullable Block block, @Nullable Tag
 	 * @param moving 该方块是否正被活塞推动，用于 {@code [moving=true]} 伪状态
 	 */
 	public boolean matches(BlockState state, boolean moving) {
-		if (block != null && state.getBlock() != block) {
+		if (this.block != null && state.getBlock() != this.block) {
 			return false;
 		}
 
-		if (tag != null && !state.typeHolder().is(tag)) {
+		if (this.tag != null && !state.typeHolder().is(this.tag)) {
 			return false;
 		}
 
-		for (Map.Entry<String, String> entry : states.entrySet()) {
-			if (entry.getKey().equals(MOVING)) {
-				if (Boolean.parseBoolean(entry.getValue()) != moving) {
-					return false;
-				}
+		if (this.stateNames.length == 0) {
+			return true;
+		}
 
+		Resolved resolved = this.resolved.computeIfAbsent(state.getBlock(), this::resolve);
+		return resolved.matches(state, moving);
+	}
+
+	/** 把 {@code (状态名, 期望值名)} 按某个方块的状态定义解析成可直接比较的对象。 */
+	private Resolved resolve(Block owner) {
+		StateDefinition<Block, BlockState> definition = owner.getStateDefinition();
+		int count = this.stateNames.length;
+
+		boolean[] movingFlags = new boolean[count];
+		Property<?>[] properties = new Property<?>[count];
+		Object[] expected = new Object[count];
+
+		for (int index = 0; index < count; index++) {
+			String name = this.stateNames[index];
+			String value = this.stateValues[index];
+
+			if (name.equals(MOVING)) {
+				movingFlags[index] = true;
+				expected[index] = Boolean.parseBoolean(value);
 				continue;
 			}
 
-			Property<?> property = state.getBlock().getStateDefinition().getProperty(entry.getKey());
-			if (property == null || !valueName(state, property).equals(entry.getValue())) {
-				return false;
+			Property<?> property = definition.getProperty(name);
+			properties[index] = property;
+			// property 为 null（该方块没有这个状态）或期望值名不匹配任何可选值
+			// 时都留 null —— 下面 matches 里一律判为"不匹配"，与旧实现一致。
+			expected[index] = property == null ? null : findValue(property, value);
+		}
+
+		return new Resolved(movingFlags, properties, expected);
+	}
+
+	/**
+	 * 在 {@code property} 的可选值里找出"字符串形式等于 {@code expected}"的那个。
+	 *
+	 * <p>刻意用 {@code String.valueOf(value).toLowerCase()} 而不是 {@code property.getValue(expected)}：
+	 * 前者与旧实现的比较语义<b>完全一致</b>（旧实现比的就是这个字符串），
+	 * 后者走的是 {@code getSerializedName()}，个别方块上两者可能不同。
+	 * 这里只在第一次遇到某个方块时跑一次，慢一点无所谓。
+	 */
+	private static Object findValue(Property<?> property, String expected) {
+		for (Object value : property.getPossibleValues()) {
+			if (String.valueOf(value).toLowerCase(Locale.ROOT).equals(expected)) {
+				return value;
 			}
 		}
 
-		return true;
+		return null;
+	}
+
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	private static Object valueOf(BlockState state, Property property) {
+		return state.getValue(property);
+	}
+
+	/** 一个方块上解析好的状态条件。 */
+	private record Resolved(boolean[] movingFlags, Property<?>[] properties, Object[] expected) {
+		private boolean matches(BlockState state, boolean moving) {
+			for (int index = 0; index < this.properties.length; index++) {
+				if (this.movingFlags[index]) {
+					if (((Boolean) this.expected[index]) != moving) {
+						return false;
+					}
+
+					continue;
+				}
+
+				Property<?> property = this.properties[index];
+				Object wanted = this.expected[index];
+				if (property == null || wanted == null) {
+					// 该方块没有这个状态名，或期望值名不存在 → 永不匹配
+					return false;
+				}
+
+				Object actual = valueOf(state, property);
+				if (actual != wanted && !wanted.equals(actual)) {
+					return false;
+				}
+			}
+
+			return true;
+		}
 	}
 
 	@Nullable
@@ -134,7 +256,13 @@ public record BlockMatchRule(String source, @Nullable Block block, @Nullable Tag
 			}
 		}
 
-		return new BlockMatchRule(source, block, tag, states);
+		String[] names = states.keySet().toArray(new String[0]);
+		String[] values = new String[names.length];
+		for (int index = 0; index < names.length; index++) {
+			values[index] = states.get(names[index]);
+		}
+
+		return new BlockMatchRule(source, block, tag, names, values);
 	}
 
 	private static boolean isAny(String target) {
@@ -174,10 +302,5 @@ public record BlockMatchRule(String source, @Nullable Block block, @Nullable Tag
 		}
 
 		return Map.copyOf(states);
-	}
-
-	@SuppressWarnings({"rawtypes", "unchecked"})
-	private static String valueName(BlockState state, Property<?> property) {
-		return String.valueOf(state.getValue((Property) property)).toLowerCase(Locale.ROOT);
 	}
 }
