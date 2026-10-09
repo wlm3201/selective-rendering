@@ -1,6 +1,7 @@
 package com.selectiverendering.mixin.sodium;
 
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
+import com.selectiverendering.BlockPosScratch;
 import com.selectiverendering.SelectiveRenderingManager;
 import net.caffeinemc.mods.sodium.client.model.color.ColorProvider;
 import net.caffeinemc.mods.sodium.client.model.quad.ModelQuadView;
@@ -33,7 +34,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *
  * <p>Sodium 的流体渲染比原版复杂，所以要补的点更多：
  * <ul>
- *   <li>{@code render} HEAD：算 alpha，为 0 就取消；</li>
+ *   <li>{@code render} HEAD：算 alpha，为 0 就取消；同时记下本次渲染用的世界切片，
+ *       供下面的面判定取邻居状态（见 {@link #selectiveRendering$level}）；</li>
  *   <li>{@code isFullBlockFluidSideVisible} / {@code getUpFaceExposureByNeighbors} /
  *       {@code isFluidSideExposed}：三个"这个面该不该画"的判定，
  *       邻居被隐藏时要改成"画"，否则液面会缺口；</li>
@@ -60,11 +62,24 @@ public class DefaultFluidRendererMixin {
 	@Unique
 	private BlockPos selectiveRendering$pos;
 
+	/**
+	 * 本次 {@code render} 使用的世界切片。
+	 *
+	 * <p>为什么要记：{@code isFluidSideExposed} 需要从"当前流体的位置反推邻居"，
+	 * 而它拿不到 level。以前用 {@code SelectiveRenderingManager.isHiddenAt(...)}，
+	 * 内部是 {@code Minecraft.getInstance().level}——那是在<b>区块构建工作线程</b>上
+	 * 读客户端世界，而且不一定是当前正在构建的那一份数据。
+	 * 这里改成用 {@code render} 传进来的 {@link LevelSlice}（线程隔离的拷贝），两全其美。
+	 */
+	@Unique
+	private BlockGetter selectiveRendering$level;
+
 	@Inject(method = "render", at = @At("HEAD"), cancellable = true)
 	private void selectiveRendering$onRender(LevelSlice level, BlockState state, FluidState fluidState, BlockPos pos, BlockPos offset, TranslucentGeometryCollector collector, ChunkModelBuilder meshBuilder, Material material, ColorProvider<FluidState> colorProvider, FluidModel model, CallbackInfo ci) {
 		int alpha = SelectiveRenderingManager.getFluidAlpha(state, pos);
 		selectiveRendering$alpha = alpha;
 		selectiveRendering$pos = pos;
+		selectiveRendering$level = level;
 
 		if (alpha == 0) {
 			ci.cancel();
@@ -85,7 +100,7 @@ public class DefaultFluidRendererMixin {
 			return original;
 		}
 
-		BlockPos neighbour = selfPos.relative(facing);
+		BlockPos neighbour = BlockPosScratch.offset(selfPos, facing);
 		BlockState neighbourState = view.getBlockState(neighbour);
 		if (!SelectiveRenderingManager.isHidden(neighbourState, neighbour)) {
 			return original;
@@ -109,12 +124,13 @@ public class DefaultFluidRendererMixin {
 			return original;
 		}
 
-		BlockPos above = origin.above();
+		BlockPos above = BlockPosScratch.at(origin.getX(), origin.getY() + 1, origin.getZ());
 		BlockState aboveState = level.getBlockState(above);
 		if (aboveState.getFluidState().isSourceOfType(fluidState.getType())) {
 			return original;
 		}
 
+		// aboveState 已经取过了，直接用它判定，不重复查表
 		return SelectiveRenderingManager.isHidden(aboveState, above) ? bothExposed : original;
 	}
 
@@ -128,7 +144,12 @@ public class DefaultFluidRendererMixin {
 		}
 
 		BlockPos pos = selectiveRendering$pos;
-		if (pos == null || !SelectiveRenderingManager.isHiddenAt(pos.relative(facing))) {
+		if (pos == null) {
+			return original;
+		}
+
+		BlockPos neighbour = BlockPosScratch.offset(pos, facing);
+		if (!SelectiveRenderingManager.isHiddenIn(selectiveRendering$level, neighbour)) {
 			return original;
 		}
 

@@ -7,6 +7,7 @@ import net.minecraft.world.phys.AABB;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 记账本：记住"哪些 section 里出现过被隐藏的方块"。
@@ -27,6 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>线程</h2>
  * <p>{@link #note} 会被区块构建线程和光照线程调用，所以用 {@link ConcurrentHashMap} 的 keySet。
  * 注意：它同时意味着"查询方法 {@code getAlpha} 会写全局状态"，是从渲染线程之外进来的副作用。
+ *
+ * <h2>为什么条数用 {@link AtomicInteger} 而不是 {@code SECTIONS.size()}</h2>
+ * <p>这里是全 Mod 最热的写入点之一（每个被隐藏的方块、每帧成千上万次），
+ * 而 {@code ConcurrentHashMap.size()} 内部要遍历 {@code counterCells} 求和，
+ * 既不是 O(1)，又会让多个构建线程争抢同一批 cache line。
+ * 改成"只在 {@code add} 真的新增了元素时才自增"的原子计数器后，
+ * 常规路径只剩一次 {@code get()}（普通 volatile 读）。
  */
 public final class HiddenSections {
 	private static final int TOO_MANY_TO_BE_WORTH_IT = 1500;
@@ -35,15 +43,19 @@ public final class HiddenSections {
 
 	private static final Set<Long> SECTIONS = ConcurrentHashMap.newKeySet();
 
+	private static final AtomicInteger COUNT = new AtomicInteger();
+
 	private HiddenSections() {
 	}
 
 	public static void note(BlockPos pos) {
-		if (SECTIONS.size() >= MOST_REMEMBERED) {
+		if (COUNT.get() >= MOST_REMEMBERED) {
 			return;
 		}
 
-		SECTIONS.add(SectionPos.asLong(pos));
+		if (SECTIONS.add(SectionPos.asLong(pos))) {
+			COUNT.incrementAndGet();
+		}
 	}
 
 	/**
@@ -52,7 +64,8 @@ public final class HiddenSections {
 	 * @return true = 已做增量重建；false = 没法/不值得做，调用方应该全量重建
 	 */
 	public static boolean mark() {
-		if (!Platform.ready() || SECTIONS.isEmpty() || SECTIONS.size() > TOO_MANY_TO_BE_WORTH_IT) {
+		int count = COUNT.get();
+		if (!Platform.ready() || count == 0 || count > TOO_MANY_TO_BE_WORTH_IT) {
 			return false;
 		}
 
@@ -92,5 +105,6 @@ public final class HiddenSections {
 
 	public static void clear() {
 		SECTIONS.clear();
+		COUNT.set(0);
 	}
 }
