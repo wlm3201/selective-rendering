@@ -5,18 +5,22 @@
 	"name": "Selective Rendering",
 	"description": "A client-side mod that makes any block translucent or hides it, based on \"region + block list\"",
 	"authors": [
-		"ryan100c (original author)",
-		"wlm3201 (porter)"
+		"Ryan100c (original author)",
+		"wlm3201 (original porter)",
+		"Ryan100C (port fork author)"
 	],
 	"license": "CC-BY-NC-4.0",
 	"icon": "assets/selective_rendering/icon.png",
 	"environment": "client",
 	"entrypoints": {
+		"preLaunch": [
+			"com.selectiverendering.dev.DevPreLaunch"
+		],
 		"client": [
 			"com.selectiverendering.SelectiveRendering"
 		],
 		"modmenu": [
-			"com.selectiverendering.config.ModMenuIntegration"
+			"com.selectiverendering.config.entry.ModMenuIntegration"
 		]
 	},
 	"mixins": [

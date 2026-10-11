@@ -1,0 +1,13 @@
+{
+  "format": "allomos/1",
+  "id": "selective-rendering",
+  "name": "selective-rendering",
+  "labels": [
+    "implemented",
+    "locally verified",
+    "deployed and verified",
+    "owner verified"
+  ],
+  "project_folder": ".",
+  "task_language": "ui"
+}

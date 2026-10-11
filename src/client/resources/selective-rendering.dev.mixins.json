@@ -1,0 +1,12 @@
+{
+	"required": false,
+	"minVersion": "0.8",
+	"package": "com.selectiverendering.dev",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"StrictValidationMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}
