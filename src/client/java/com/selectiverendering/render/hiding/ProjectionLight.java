@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** 投影自己的光照，这里把每个范围当作悬在空中的一块*/
+/** 投影自己的光照，这里把每个范围当作悬在空中的一块 */
 public final class ProjectionLight {
 	/** 范围加上一圈空气外壳的光照，下标相对范围最小角（-1 .. 尺寸）。 */
 	public static final class Field {
@@ -105,8 +105,7 @@ public final class ProjectionLight {
 			try {
 				known = job.future().get();
 				FIELDS.put(key, known);
-			}
-			catch (Exception exception) {
+			} catch (Exception exception) {
 				Log.error("[projection] light failed", exception);
 			}
 
@@ -173,8 +172,7 @@ public final class ProjectionLight {
 			if (shell[index]) {
 				sky[index] = 15;
 				skyQueue.enqueue(index);
-			}
-			else if (emission[index] > 0) {
+			} else if (emission[index] > 0) {
 				block[index] = emission[index];
 				blockQueue.enqueue(index);
 			}
@@ -236,8 +234,7 @@ public final class ProjectionLight {
 				lights[vertex] = vertexLight(
 					field,
 					positions[vertex * 3] + shiftX, positions[vertex * 3 + 1] + shiftY, positions[vertex * 3 + 2] + shiftZ,
-					quad.normalX(), quad.normalY(), quad.normalZ()
-				);
+					quad.normalX(), quad.normalY(), quad.normalZ());
 			}
 
 			int[] colors = quad.colors();
@@ -250,8 +247,7 @@ public final class ProjectionLight {
 					float shade = directional * vertexAo(
 						field,
 						positions[vertex * 3] + shiftX, positions[vertex * 3 + 1] + shiftY, positions[vertex * 3 + 2] + shiftZ,
-						quad.normalX(), quad.normalY(), quad.normalZ()
-					);
+						quad.normalX(), quad.normalY(), quad.normalZ());
 
 					int color = quad.colors()[vertex];
 					colors[vertex] = (255 << 24)
@@ -263,8 +259,7 @@ public final class ProjectionLight {
 
 			result.add(new TerrainTranslucency.Quad(
 				positions, quad.uvs(), colors, lights,
-				quad.normalX(), quad.normalY(), quad.normalZ(), quad.alpha(), quad.global(), quad.translucent(), quad.region(), false
-			));
+				quad.normalX(), quad.normalY(), quad.normalZ(), quad.alpha(), quad.global(), quad.translucent(), quad.region(), false));
 		}
 
 		return result;
@@ -359,6 +354,6 @@ public final class ProjectionLight {
 			}
 		}
 
-		return new int[]{blockSum, skySum, count};
+		return new int[] {blockSum, skySum, count};
 	}
 }

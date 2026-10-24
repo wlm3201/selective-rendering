@@ -7,28 +7,24 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 轴对齐的整数方块长方体，包含 min 和 max 两端*/
+/** 轴对齐的整数方块长方体，包含 min 和 max 两端 */
 public record Area(BlockPos min, BlockPos max) {
 	public static Area of(BlockPos first, BlockPos second) {
 		return new Area(
 			new BlockPos(
 				Math.min(first.getX(), second.getX()),
 				Math.min(first.getY(), second.getY()),
-				Math.min(first.getZ(), second.getZ())
-			),
+				Math.min(first.getZ(), second.getZ())),
 			new BlockPos(
 				Math.max(first.getX(), second.getX()),
 				Math.max(first.getY(), second.getY()),
-				Math.max(first.getZ(), second.getZ())
-			)
-		);
+				Math.max(first.getZ(), second.getZ())));
 	}
 
 	public AABB box() {
 		return new AABB(
 			min.getX(), min.getY(), min.getZ(),
-			max.getX() + 1.0, max.getY() + 1.0, max.getZ() + 1.0
-		);
+			max.getX() + 1.0, max.getY() + 1.0, max.getZ() + 1.0);
 	}
 
 	/** 减去，返回剩余的至多六个长方体。 */
@@ -91,14 +87,11 @@ public record Area(BlockPos min, BlockPos max) {
 			new BlockPos(
 				Math.max(min.getX(), other.min.getX()),
 				Math.max(min.getY(), other.min.getY()),
-				Math.max(min.getZ(), other.min.getZ())
-			),
+				Math.max(min.getZ(), other.min.getZ())),
 			new BlockPos(
 				Math.min(max.getX(), other.max.getX()),
 				Math.min(max.getY(), other.max.getY()),
-				Math.min(max.getZ(), other.max.getZ())
-			)
-		);
+				Math.min(max.getZ(), other.max.getZ())));
 	}
 
 	public boolean contains(BlockPos pos) {
@@ -153,10 +146,8 @@ public record Area(BlockPos min, BlockPos max) {
 			return new BlockPos(
 				Integer.parseInt(parts[0].trim()),
 				Integer.parseInt(parts[1].trim()),
-				Integer.parseInt(parts[2].trim())
-			);
-		}
-		catch (NumberFormatException e) {
+				Integer.parseInt(parts[2].trim()));
+		} catch (NumberFormatException e) {
 			return null;
 		}
 	}

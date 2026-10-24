@@ -24,29 +24,21 @@ public class SubmitNodeCollectionMixin {
 	@Inject(method = "submitMovingBlock", at = @At("HEAD"), cancellable = true, require = 1)
 	//? if >=26.2 {
 	private void selectiveRendering$submitMovingBlock(PoseStack poseStack, MovingBlockRenderState renderState, int outlineColor, CallbackInfo ci) {
-	//?} else {
-	/*private void selectiveRendering$submitMovingBlock(PoseStack poseStack, MovingBlockRenderState renderState, CallbackInfo ci) {
-	*///?}
+		//?} else {
+		/*private void selectiveRendering$submitMovingBlock(PoseStack poseStack, MovingBlockRenderState renderState, CallbackInfo ci) {
+		*///?}
 		if (AlphaGetter.getAlpha(renderState.blockState, renderState.blockPos, true) == 0) {
 			ci.cancel();
 		}
 	}
 	//? if >=26.2 {
 
-	@WrapOperation(
-		method = "submitMovingBlock",
-		at = @At(
-			value = "INVOKE",
-			target = "Lnet/minecraft/client/renderer/block/dispatch/BlockStateModel;hasMaterialFlag(I)Z"
-		),
-		require = 1
-	)
+	@WrapOperation(method = "submitMovingBlock", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/block/dispatch/BlockStateModel;hasMaterialFlag(I)Z"), require = 1)
 	private boolean selectiveRendering$forceTranslucentPhase(
 		BlockStateModel model,
 		int flag,
 		Operation<Boolean> original,
-		@Local MovingBlockRenderState renderState
-	) {
+		@Local MovingBlockRenderState renderState) {
 		boolean hasTranslucentMaterial = original.call(model, flag);
 		if (hasTranslucentMaterial || flag != BakedQuad.FLAG_TRANSLUCENT) {
 			return hasTranslucentMaterial;

@@ -18,9 +18,7 @@ import java.util.concurrent.CompletableFuture;
 
 /** 根据注册名决定用哪个命令参数的补全 */
 public enum SuggestKind {
-	BLOCK,
-	ENTITY,
-	PARTICLE;
+	BLOCK, ENTITY, PARTICLE;
 
 	/** 按光标之前的文本给出补全 */
 	public boolean isValid(String entry) {
@@ -43,8 +41,7 @@ public enum SuggestKind {
 
 		try {
 			return future.isDone() ? future.join().getList() : List.of();
-		}
-		catch (RuntimeException e) {
+		} catch (RuntimeException e) {
 			return List.of();
 		}
 	}

@@ -10,7 +10,7 @@ import net.minecraft.world.level.storage.TagValueOutput;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** 客户端实体的 NBT，序列化有开销，所以每个实体隔半秒重新取一次*/
+/** 客户端实体的 NBT，序列化有开销，所以每个实体隔半秒重新取一次 */
 public final class EntityNbt {
 	private static final int REFRESH_TICKS = 10;
 	private static final int LIMIT = 4096;
@@ -39,8 +39,7 @@ public final class EntityNbt {
 
 		try {
 			entity.saveWithoutId(output);
-		}
-		catch (RuntimeException ignored) {
+		} catch (RuntimeException ignored) {
 		}
 
 		if (CACHE.size() >= LIMIT) {

@@ -15,12 +15,16 @@ public final class Log {
 	public static void say(String message, Object... args) {
 		LOGGER.info(message, args);
 	}
+
 	public static void error(String message, Object... args) {
 		LOGGER.error(message, args);
 	}
+
 	public static void debug(String message, Object... args) {
-		if(LOG) LOGGER.debug(message, args);
+		if (LOG)
+			LOGGER.debug(message, args);
 	}
+
 	public static void warn(String message, Object... args) {
 		LOGGER.warn(message, args);
 	}

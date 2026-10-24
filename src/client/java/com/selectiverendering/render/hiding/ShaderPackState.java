@@ -22,8 +22,7 @@ public final class ShaderPackState {
 
 		try {
 			return (boolean) inUse.invoke(api);
-		}
-		catch (ReflectiveOperationException | RuntimeException exception) {
+		} catch (ReflectiveOperationException | RuntimeException exception) {
 			return false;
 		}
 	}
@@ -37,8 +36,7 @@ public final class ShaderPackState {
 			Class<?> type = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
 			api = type.getMethod("getInstance").invoke(null);
 			inUse = type.getMethod("isShaderPackInUse");
-		}
-		catch (ReflectiveOperationException | LinkageError exception) {
+		} catch (ReflectiveOperationException | LinkageError exception) {
 			inUse = null;
 		}
 

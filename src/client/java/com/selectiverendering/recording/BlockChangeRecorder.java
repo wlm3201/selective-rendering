@@ -50,7 +50,7 @@ public final class BlockChangeRecorder {
 		return changed.size();
 	}
 
-	/** 开始记录；要求当前选区的两个角点均已设置。*/
+	/** 开始记录；要求当前选区的两个角点均已设置。 */
 	public static void start() {
 		if (recording) {
 			return;
@@ -113,8 +113,7 @@ public final class BlockChangeRecorder {
 	public static void toggle() {
 		if (recording) {
 			stop();
-		}
-		else {
+		} else {
 			start();
 		}
 	}

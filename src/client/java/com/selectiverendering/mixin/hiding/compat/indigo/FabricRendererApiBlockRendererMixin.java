@@ -46,8 +46,7 @@ public class FabricRendererApiBlockRendererMixin {
 		BlockState blockState,
 		BlockStateModel model,
 		long seed,
-		CallbackInfo ci
-	) {
+		CallbackInfo ci) {
 		selectiveRendering$level = level;
 		selectiveRendering$pos = pos;
 		selectiveRendering$blockState = blockState;

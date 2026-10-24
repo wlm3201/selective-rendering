@@ -12,8 +12,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
-
 
 /** 根据配置快照判断方块是否淡化及其透明度。 */
 public final class AlphaGetter {
@@ -34,8 +34,9 @@ public final class AlphaGetter {
 		HiddenSections.note(pos);
 		return alpha;
 	}
+
 	// 排队查询方块实体，避免立即创建实例。
-	public static BlockEntity queryBlockEntity(BlockPos pos, Level level){
+	public static BlockEntity queryBlockEntity(BlockPos pos, Level level) {
 		return level.getChunkAt(pos).getBlockEntity(pos, LevelChunk.EntityCreationType.QUEUED);
 	}
 
@@ -95,6 +96,16 @@ public final class AlphaGetter {
 	/** 判断方块是否被淡化，不记录区段。 */
 	public static boolean isFaded(BlockState state, BlockPos pos) {
 		return alphaNow(state, pos, false) >= 0;
+	}
+
+	/** 返回实体应使用的透明度，-1 表示正常渲染；主线程调用。 */
+	public static int entityAlphaNow(Entity entity) {
+		return RegionTargets.entityAlpha(entity.getType(), entity.getId(), entity.getX(), entity.getY(), entity.getZ());
+	}
+
+	/** 判断实体是否被淡化（含完全隐藏），语义同 {@link #isFaded}；主线程调用。 */
+	public static boolean isFadedEntity(Entity entity) {
+		return entityAlphaNow(entity) >= 0;
 	}
 
 	public static boolean isHiddenAt(BlockPos pos) {

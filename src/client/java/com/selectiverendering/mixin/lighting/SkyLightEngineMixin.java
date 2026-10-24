@@ -10,9 +10,7 @@ import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.lighting.SkyLightEngine;
 import org.spongepowered.asm.mixin.Mixin;
 
-/**
- *  让隐藏方块在天空光源头计算里也是空气。
- */
+/** 让隐藏方块在天空光源头计算里也是空气。 */
 @Mixin(SkyLightEngine.class)
 public class SkyLightEngineMixin {
 	@WrapMethod(method = "getLowestSourceY")

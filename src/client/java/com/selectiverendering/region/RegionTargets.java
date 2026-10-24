@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-/*** 方块、实体、粒子是否被选区影响，以及用什么透明度*/
+/*** 方块、实体、粒子是否被选区影响，以及用什么透明度 */
 public final class RegionTargets {
 	private static final int MAX_CACHED_ENTRIES = 4096;
 
@@ -93,8 +93,7 @@ public final class RegionTargets {
 			Integer cached = carried ? null : cache.listed.get(state);
 			if (cached != null) {
 				listed = cached != 0;
-			}
-			else {
+			} else {
 				listed = matches(state, carried, rules);
 				if (!carried) {
 					remember(cache.listed, state, listed ? 1 : 0);
@@ -129,7 +128,7 @@ public final class RegionTargets {
 		}
 
 		for (Region region : current.blockRegions()) {
-			if (region.options().alphaOverride() >= 0 && region.contains(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)) {
+			if (region.options().transparencyOverride() >= 0 && region.contains(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)) {
 				return region.id();
 			}
 		}
@@ -159,7 +158,7 @@ public final class RegionTargets {
 	private static int overriddenAlpha(RenderConfig current, List<Region> regions, double x, double y, double z) {
 		if (current.hasAlphaOverride()) {
 			for (Region region : regions) {
-				int override = region.options().alphaOverride();
+				int override = region.options().overrideAlpha();
 
 				if (override >= 0 && region.contains(x, y, z)) {
 					return override;
@@ -242,8 +241,7 @@ public final class RegionTargets {
 				SectionPos.x(section) * 16,
 				SectionPos.y(section) * 16,
 				SectionPos.z(section) * 16,
-				regions
-			) ? 1 : 0;
+				regions) ? 1 : 0;
 			remember(cache.sections, section, hit);
 		}
 

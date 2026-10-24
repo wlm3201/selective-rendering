@@ -10,7 +10,6 @@ import net.minecraft.core.Direction;
 import org.joml.Vector3fc;
 
 public final class VanillaCapture {
-	private static final float CAPTURE_INSET = 0.005F;
 	// 原版流体逐顶点输出，四个顶点凑成一个四边形：每个顶点 7 个数（位置、uv、颜色位、光照位）。
 	private static final int STRIDE = 8;
 
@@ -30,14 +29,13 @@ public final class VanillaCapture {
 		TerrainTranslucency.addCaptured(pos, toQuad(x, y, z, quad, instance, alpha, true));
 	}
 
-	/** capture 为真时用于半透明截流（边界面向内收、透明度跟随全局），否则原样转换（投影烘焙）。 */
+	/** capture 为真时用于半透明截流（透明度跟随全局），否则原样转换（投影烘焙）。顶点位置不做任何偏移。 */
 	public static TerrainTranslucency.Quad toQuad(float x, float y, float z, BakedQuad quad, QuadInstance instance, int alpha, boolean capture) {
 		return toQuad(x, y, z, quad, instance, alpha, capture, false, -1);
 	}
 
 	public static TerrainTranslucency.Quad toQuad(float x, float y, float z, BakedQuad quad, QuadInstance instance, int alpha, boolean capture, boolean flatShade, int tint) {
 		boolean translucent = capture || quad.materialInfo().layer() == ChunkSectionLayer.TRANSLUCENT;
-		float inset = capture ? CAPTURE_INSET : 0.0F;
 		float[] positions = new float[12];
 		float[] uvs = new float[8];
 		int[] colors = new int[4];
@@ -51,9 +49,9 @@ public final class VanillaCapture {
 
 		for (int i = 0; i < 4; i++) {
 			Vector3fc position = quad.position(i);
-			positions[i * 3] = x + position.x() - nx * inset;
-			positions[i * 3 + 1] = y + position.y() - ny * inset;
-			positions[i * 3 + 2] = z + position.z() - nz * inset;
+			positions[i * 3] = x + position.x();
+			positions[i * 3 + 1] = y + position.y();
+			positions[i * 3 + 2] = z + position.z();
 
 			long uv = quad.packedUV(i);
 			uvs[i * 2] = UVPair.unpackU(uv);

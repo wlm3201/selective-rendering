@@ -24,8 +24,8 @@ public final class WidgetRegionCorner extends WidgetConfigOption {
 	private static final Pattern NUMBER = Pattern.compile("-?\\d+");
 
 	public WidgetRegionCorner(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 
@@ -39,7 +39,7 @@ public final class WidgetRegionCorner extends WidgetConfigOption {
 		Area area = corner.area();
 		BlockPos shown = corner.isMin() ? area.min() : area.max();
 
-		String label = ModConfigs.text("region_area") + " " + corner.index() + " · " + ModConfigs.text(corner.isMin() ? "region_min" : "region_max");
+		String label = ModConfigs.text(corner.isMin() ? "region_min" : "region_max");
 		this.addLabel(x + 12, y + 6, labelWidth, 8, 0xFFFFFFFF, label);
 
 		int fieldX = x + labelWidth + 10;
@@ -81,8 +81,7 @@ public final class WidgetRegionCorner extends WidgetConfigOption {
 
 			try {
 				values[index] = Integer.parseInt(matcher.group());
-			}
-			catch (NumberFormatException e) {
+			} catch (NumberFormatException e) {
 				return null;
 			}
 		}

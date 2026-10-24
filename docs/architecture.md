@@ -261,7 +261,12 @@ MaLiLib 用它计算整张表的最大标签宽度，返回选区字符串会把
 - 线框：`LevelRendererMixin` 用选区的颜色画 `Region.outline()`（`RegionOutline`：按所有范围的边界坐标压成网格，对每条网格边
   看周围四个格子，只保留融合形状的真实棱；格子数超过 40 万时退化成逐个范围画盒子），每个范围另画一层半透明填充。
   选中的选区线更粗、填充更深。
-- 魔杖：中键对着角点选角点，对着选区选选区（`RegionEditor.selectAlongRay`），对着空气清空选择。选中了选区时，
+- 魔杖：中键取射线上最近的目标 —— 角点盒最近就选这个角点，否则是选区的范围就选这个选区，否则两个角点都设了且射线
+  穿过了那个框就选中整个框（`RegionEditor.selectAlongRay`）；三种选中互斥（`selectedCorner` / `selectionSelected` /
+  `selectedRegionId`，由 `RegionEditor` 的选择方法统一维护），对着空气清空选择。站在框里时不算命中框的表面。
+  Alt + 滚轮作用在唯一选中的目标上：选区挪投影（`RegionEditor.moveProjection`），整个框一起挪两个角点
+  （`RegionEditor.moveSelection`），单个角点挪自己（`RegionEditor.moveSelectedCorner`）；没选中任何东西时不吞滚轮。
+  选中了选区时，
   选区键 + 左键添加的范围和记录器记录出的范围并入它（`addAreas`），没选中时新建选区；选区键 + 左键对着某个范围时删除这个范围。
 - 覆盖透明度：`RegionOptions.alphaOverride`，-1 跟随全局，0..255 是这个选区自己的 alpha（0 完全透明，255 不透明）。方块、实体、
   粒子命中时取位置所在选区的覆盖值（`RegionTargets.overriddenAlpha`；选区外模式没有"所在选区"，用全局值）；实体和方块实体的提交器
@@ -342,8 +347,8 @@ MaLiLib 用它计算整张表的最大标签宽度，返回选区字符串会把
 移植与「隐藏时仍构建网格」：26.2 用 `PreparedRenderType.drawFromBuffer`（无 RenderPass 参数，钩 `executeTranslucent()`）；
 26.1.2 没有 `PreparedRenderType`，`RetainedTerrain.drawImmediate` 按 `RenderType.draw` 的做法自己开渲染通道，
 钩 `FeatureRenderDispatcher.renderTranslucentFeatures`，用当时的 `RenderSystem` 模型视图矩阵。
-配置 `build_hidden_mesh`（默认关）开启后，alpha 为 0 的方块 / 流体也截流（绘制时跳过），
-全局透明度在完全隐藏和半透明之间变化时不重建区块。
+alpha 为 0（完全隐藏）的方块 / 流体不截流也不进网格，只有落在投影源范围里才保留四边形给投影复制，
+所以全局或覆盖透明度进出完全隐藏这一档时都要重建区块（`RegionEditor.alphaCategory` 把 0 单独分一类）。
 
 ---
 
@@ -374,7 +379,8 @@ MaLiLib 用它计算整张表的最大标签宽度，返回选区字符串会把
 选区自己的隐藏 / 半透明 mixin 直接放行。粒子在 `SingleQuadParticleMixin` 里：源范围里的粒子提取完一次后，带着位移再提取一次
 （`extractRotatedQuad` 的坐标加上位移）。被选区隐藏的粒子在创建时就丢弃了，所以不会有投影。
 
-**操作**在 `ProjectionControls`：Ctrl + 方向键（`project_*` 热键）相对视线水平方向移动一格，Ctrl + 滚轮沿视线主轴移动（选中了选区时）。
+**操作**在 `ProjectionControls`：Alt + 滚轮按当前选中的目标分派（选区挪投影 / 整个框一起挪 / 单个角点挪），
+方向取视线主轴（`MouseHandlerMixin.lookingDirection`），一次一格。Ctrl + 滚轮只负责切模式。
 `InfoRenderer` 在拿着魔杖时用同色的浅色框出投影区，并把 8 个顶点和原位置的框连线。
 
 **投影自己的光照**：原版光照引擎不知道投影的存在，不会把光传进投影里，所以 `ProjectionLight` 为每个源范围单独算一份光照场：

@@ -22,8 +22,7 @@ public final class Preset {
 			SelectiveRenderingManager.DEFAULT_TRANSPARENCY,
 			SelectiveRenderingManager.DEFAULT_INVERT,
 			new ArrayList<>(),
-			new ArrayList<>()
-		);
+			new ArrayList<>());
 	}
 
 	private Preset(String name, Mode mode, int transparency, boolean invert, List<String> rules, List<String> regions) {

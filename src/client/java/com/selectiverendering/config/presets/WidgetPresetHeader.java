@@ -11,8 +11,8 @@ import fi.dy.masa.malilib.gui.widgets.WidgetListConfigOptionsBase;
 /** 显示预设标题和新建按钮。 */
 public final class WidgetPresetHeader extends WidgetConfigOption {
 	public WidgetPresetHeader(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 
 		String label = ModConfigs.text("presets.new_button");
@@ -20,8 +20,7 @@ public final class WidgetPresetHeader extends WidgetConfigOption {
 
 		ButtonGeneric button = new ButtonGeneric(
 			WidgetPresetRow.resetButtonRight(this, x, labelWidth, configWidth) - buttonWidth, y + 1, buttonWidth, 20,
-			label, ModConfigs.text("presets.new_button.description")
-		);
+			label, ModConfigs.text("presets.new_button.description"));
 
 		this.addButton(button, (pressed, mouseButton) -> {
 			ModPresets.create();

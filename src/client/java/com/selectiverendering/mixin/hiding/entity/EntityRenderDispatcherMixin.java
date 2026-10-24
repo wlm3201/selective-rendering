@@ -25,8 +25,7 @@ public class EntityRenderDispatcherMixin {
 		double z,
 		PoseStack poseStack,
 		SubmitNodeCollector submitNodeCollector,
-		Operation<Void> original
-	) {
+		Operation<Void> original) {
 		if (ProjectionPass.active()) {
 			original.call(renderState, camera, x, y, z, poseStack, submitNodeCollector);
 			return;

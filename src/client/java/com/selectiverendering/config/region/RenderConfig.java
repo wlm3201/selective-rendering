@@ -30,6 +30,7 @@ public final class RenderConfig {
 	private final String wand;
 	private final boolean fullBright;
 	private final boolean passThrough;
+	private final boolean passThroughEntities;
 	private final BlockPos corner1;
 	private final BlockPos corner2;
 	private final AABB region;
@@ -57,6 +58,7 @@ public final class RenderConfig {
 		this.wand = builder.wand;
 		this.fullBright = builder.fullBright;
 		this.passThrough = builder.passThrough;
+		this.passThroughEntities = builder.passThroughEntities;
 		this.corner1 = builder.corner1;
 		this.corner2 = builder.corner2;
 		this.region = builder.region;
@@ -67,7 +69,7 @@ public final class RenderConfig {
 		this.particleRegions = regions.stream().filter(added -> added.options().particles()).toList();
 		this.union = unionOf(blockRegions);
 		this.hasLocalRules = blockRegions.stream().anyMatch(added -> !added.options().rules().isEmpty());
-		this.hasAlphaOverride = regions.stream().anyMatch(added -> added.options().alphaOverride() >= 0);
+		this.hasAlphaOverride = regions.stream().anyMatch(added -> added.options().transparencyOverride() >= 0);
 	}
 
 	public Mode mode() {
@@ -124,6 +126,10 @@ public final class RenderConfig {
 
 	public boolean passThrough() {
 		return passThrough;
+	}
+
+	public boolean passThroughEntities() {
+		return passThroughEntities;
 	}
 
 	@Nullable
@@ -216,6 +222,7 @@ public final class RenderConfig {
 		public String wand = SelectiveRenderingManager.DEFAULT_WAND;
 		public boolean fullBright = SelectiveRenderingManager.DEFAULT_FULL_BRIGHT;
 		public boolean passThrough = SelectiveRenderingManager.DEFAULT_PASS_THROUGH;
+		public boolean passThroughEntities = SelectiveRenderingManager.DEFAULT_PASS_THROUGH_ENTITIES;
 		public BlockPos corner1;
 		public BlockPos corner2;
 		public AABB region;

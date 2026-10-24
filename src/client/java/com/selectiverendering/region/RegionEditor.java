@@ -3,6 +3,7 @@ package com.selectiverendering.region;
 import com.selectiverendering.SelectiveRenderingManager;
 import com.selectiverendering.lighting.LightSuppression;
 import com.selectiverendering.render.hiding.HiddenSections;
+import com.selectiverendering.render.hiding.RetainedTerrain;
 import com.selectiverendering.render.hiding.RebuildScheduler;
 import com.selectiverendering.util.Log;
 import net.minecraft.core.BlockPos;
@@ -38,12 +39,11 @@ public final class RegionEditor {
 		synchronized (SelectiveRenderingManager.LOCK) {
 			if (index == 0) {
 				SelectiveRenderingManager.corner1 = pos.immutable();
-			}
-			else {
+			} else {
 				SelectiveRenderingManager.corner2 = pos.immutable();
 			}
 
-			SelectiveRenderingManager.selectedCorner = index;
+			select(index, false, null);
 			SelectiveRenderingManager.updateRegion();
 			SelectiveRenderingManager.commit();
 		}
@@ -53,7 +53,7 @@ public final class RegionEditor {
 		synchronized (SelectiveRenderingManager.LOCK) {
 			SelectiveRenderingManager.corner1 = null;
 			SelectiveRenderingManager.corner2 = null;
-			SelectiveRenderingManager.selectedCorner = -1;
+			clearSelection();
 			SelectiveRenderingManager.updateRegion();
 			SelectiveRenderingManager.commit();
 		}
@@ -63,78 +63,158 @@ public final class RegionEditor {
 		return SelectiveRenderingManager.selectedCorner == index;
 	}
 
-	/** 中键：对着角点选角点，对着选区选选区，对着空气清空选择。 */
+	/** 两个角点围出的整个框是否被选中。 */
+	public static boolean isSelectionSelected() {
+		return SelectiveRenderingManager.selectionSelected;
+	}
+
+	/**
+	 * 中键：角点、已添加选区的范围、两个角点围出的整个框，三者都只看射线有没有打到，
+	 * 跟有没有方块挡在前面无关 —— 看得见就选得到。角点最优先（它小，常被选区挡住），
+	 * 其余两个按最近的一个算，都没有就清空。
+	 */
 	public static void selectAlongRay(Vec3 start, Vec3 end) {
 		synchronized (SelectiveRenderingManager.LOCK) {
-			int corner = closestCorner(start, end);
-			if (corner >= 0) {
-				SelectiveRenderingManager.selectedCorner = corner;
-				return;
+			int corner = -1;
+			double cornerDistance = Double.MAX_VALUE;
+
+			for (int index = 0; index < 2; index++) {
+				BlockPos pos = index == 0 ? SelectiveRenderingManager.corner1 : SelectiveRenderingManager.corner2;
+				if (pos == null) {
+					continue;
+				}
+
+				double distance = clipDistance(start, end, cornerBox(pos));
+				if (distance < cornerDistance) {
+					cornerDistance = distance;
+					corner = index;
+				}
 			}
 
 			Hit hit = pickArea(start, end);
-			if (hit != null) {
-				SelectiveRenderingManager.selectedRegionId = hit.region().id();
+			double areaDistance = hit == null ? Double.MAX_VALUE : clipDistance(start, end, hit.area().box());
+
+			Area selection = selection();
+			// 站在框里时不算命中框的表面，否则视线怎么都绕不开它。
+			double boxDistance = selection == null || selection.box().contains(start)
+				? Double.MAX_VALUE
+				: clipDistance(start, end, selection.box());
+
+			// 角点最优先：它又小又常被选区挡住，射线打到就选中，不看别的。
+			if (corner >= 0) {
+				selectCorner(corner);
 				return;
 			}
 
-			SelectiveRenderingManager.selectedCorner = -1;
-			SelectiveRenderingManager.selectedRegionId = null;
+			if (hit != null && areaDistance <= boxDistance) {
+				selectRegion(hit.region());
+				return;
+			}
+
+			if (boxDistance < Double.MAX_VALUE) {
+				selectSelection();
+				return;
+			}
+
+			clearSelection();
 		}
 	}
 
-	private static int closestCorner(Vec3 start, Vec3 end) {
-		int closest = -1;
-		double closestDistance = Double.MAX_VALUE;
-
-		for (int index = 0; index < 2; index++) {
-			BlockPos pos = getCorner(index);
-			if (pos == null) {
-				continue;
-			}
-
-			Optional<Vec3> hit = cornerBox(pos).clip(start, end);
-			if (hit.isEmpty()) {
-				continue;
-			}
-
-			double distance = start.distanceToSqr(hit.get());
-			if (distance < closestDistance) {
-				closestDistance = distance;
-				closest = index;
-			}
+	/** 选中某个角点，同时取消对整个框和选区的选中。 */
+	public static void selectCorner(int index) {
+		synchronized (SelectiveRenderingManager.LOCK) {
+			select(index, false, null);
 		}
+	}
 
-		return closest;
+	/** 选中两个角点围出的整个框，同时取消对单个角点和选区的选中；角点没设全时不选中。 */
+	public static void selectSelection() {
+		synchronized (SelectiveRenderingManager.LOCK) {
+			if (selection() == null) {
+				clearSelection();
+				return;
+			}
+
+			select(-1, true, null);
+		}
+	}
+
+	/** 选中某个选区，同时取消对角点和整个框的选中。 */
+	public static void selectRegion(@Nullable Region region) {
+		synchronized (SelectiveRenderingManager.LOCK) {
+			select(-1, false, region == null ? null : region.id());
+		}
+	}
+
+	/** 取消所有选中。 */
+	public static void clearSelection() {
+		synchronized (SelectiveRenderingManager.LOCK) {
+			select(-1, false, null);
+		}
+	}
+
+	/** 一次只选中一个目标：角点、整个框、选区三者同时写，没选中的一律清掉。 */
+	private static void select(int corner, boolean whole, @Nullable java.util.UUID region) {
+		SelectiveRenderingManager.selectedCorner = corner;
+		SelectiveRenderingManager.selectionSelected = whole;
+		SelectiveRenderingManager.selectedRegionId = region;
+	}
+
+	private static double clipDistance(Vec3 start, Vec3 end, AABB box) {
+		return box.clip(start, end).map(hit -> start.distanceToSqr(hit)).orElse(Double.MAX_VALUE);
 	}
 
 	private static AABB cornerBox(BlockPos pos) {
 		return new AABB(pos.getX(), pos.getY(), pos.getZ(), pos.getX() + 1.0, pos.getY() + 1.0, pos.getZ() + 1.0);
 	}
 
-	/** 沿指定方向移动当前选中的角点。 */
-	public static void moveSelectedCorner(Direction direction, int amount) {
+	/** 沿指定方向移动当前选中的角点；没有选中角点时返回 false。 */
+	public static boolean moveSelectedCorner(Direction direction, int amount) {
 		synchronized (SelectiveRenderingManager.LOCK) {
 			int index = SelectiveRenderingManager.selectedCorner;
 			if (index < 0) {
-				return;
+				return false;
 			}
 
 			BlockPos pos = index == 0 ? SelectiveRenderingManager.corner1 : SelectiveRenderingManager.corner2;
 			if (pos == null) {
-				return;
+				clearSelection();
+				return false;
 			}
 
 			BlockPos moved = pos.relative(direction, amount).immutable();
 			if (index == 0) {
 				SelectiveRenderingManager.corner1 = moved;
-			}
-			else {
+			} else {
 				SelectiveRenderingManager.corner2 = moved;
 			}
 
 			SelectiveRenderingManager.updateRegion();
 			SelectiveRenderingManager.commit();
+			return true;
+		}
+	}
+
+	/** 沿指定方向整体移动两个角点；没选中整个框或角点没设全时返回 false。 */
+	public static boolean moveSelection(Direction direction, int amount) {
+		synchronized (SelectiveRenderingManager.LOCK) {
+			if (!SelectiveRenderingManager.selectionSelected) {
+				return false;
+			}
+
+			BlockPos first = SelectiveRenderingManager.corner1;
+			BlockPos second = SelectiveRenderingManager.corner2;
+			if (first == null || second == null) {
+				clearSelection();
+				return false;
+			}
+
+			SelectiveRenderingManager.corner1 = first.relative(direction, amount).immutable();
+			SelectiveRenderingManager.corner2 = second.relative(direction, amount).immutable();
+
+			SelectiveRenderingManager.updateRegion();
+			SelectiveRenderingManager.commit();
+			return true;
 		}
 	}
 
@@ -173,8 +253,7 @@ public final class RegionEditor {
 
 			if (selected == null) {
 				SelectiveRenderingManager.REGIONS.add(Region.create(added));
-			}
-			else {
+			} else {
 				List<Area> merged = new ArrayList<>(existing);
 				merged.addAll(added);
 				SelectiveRenderingManager.REGIONS.set(SelectiveRenderingManager.REGIONS.indexOf(selected), selected.withAreas(merged));
@@ -200,10 +279,16 @@ public final class RegionEditor {
 			SelectiveRenderingManager.commitAndRemember();
 		}
 
+		int oldAlpha = old.options().overrideAlpha();
+		int newAlpha = updated.options().overrideAlpha();
+
 		boolean blocksChanged = !old.areas().equals(updated.areas())
 			|| old.options().blocks() != updated.options().blocks()
 			|| !old.options().ruleSources().equals(updated.options().ruleSources())
-			|| alphaCategory(old.options().alphaOverride()) != alphaCategory(updated.options().alphaOverride());
+			|| alphaCategory(oldAlpha) != alphaCategory(newAlpha)
+			// alpha 烘焙进区块网格时是编译期写死的，改一点就得重建；
+			// 走常驻管线时绘制时才取最新值，可以省掉这次重建。
+			|| (oldAlpha != newAlpha && !RetainedTerrain.alphaFollowsDraw());
 
 		if (blocksChanged) {
 			List<Area> touched = new ArrayList<>(old.areas());
@@ -214,6 +299,7 @@ public final class RegionEditor {
 		return true;
 	}
 
+	/** 完全隐藏（0）单独一类：它不建网格，和半透明之间切换要重建区块。 */
 	private static int alphaCategory(int override) {
 		int alpha = override < 0 ? SelectiveRenderingManager.config().alpha() : override;
 
@@ -221,11 +307,7 @@ public final class RegionEditor {
 			return 2;
 		}
 
-		if (alpha <= 0 && !SelectiveRenderingManager.isBuildHiddenMesh()) {
-			return 0;
-		}
-
-		return 1;
+		return alpha <= 0 ? 0 : 1;
 	}
 
 	/** 把选区的投影位移改变 (dx, dy, dz)，返回改变后的位移（x, y, z）；选区已不存在时返回 null。 */
@@ -248,7 +330,7 @@ public final class RegionEditor {
 			changed(current.areas(), List.of(), false);
 		}
 
-		return new int[]{x, y, z};
+		return new int[] {x, y, z};
 	}
 
 	public static void resetProjection(Region region) {
@@ -285,8 +367,7 @@ public final class RegionEditor {
 		Region region,
 		String source,
 		java.util.function.Function<RegionOptions, List<String>> read,
-		java.util.function.BiFunction<RegionOptions, List<String>, RegionOptions> write
-	) {
+		java.util.function.BiFunction<RegionOptions, List<String>, RegionOptions> write) {
 		Region current = null;
 		List<String> entries;
 		boolean removed;
@@ -336,9 +417,7 @@ public final class RegionEditor {
 		return true;
 	}
 
-	/**
-	 * 把 source 的所有范围并入 target，设置以 target 为准，名单取并集；source 随即消失。
-	 */
+	/** 把 source 的所有范围并入 target，设置以 target 为准，名单取并集；source 随即消失。 */
 	public static void mergeRegion(Region source, Region target) {
 		if (source.equals(target)) {
 			return;
@@ -364,9 +443,7 @@ public final class RegionEditor {
 		changed(source.areas(), source.areas(), false);
 	}
 
-	/**
-	 * 删除指定选区并保存、重建及还原光照。
-	 */
+	/** 删除指定选区并保存、重建及还原光照。 */
 	public static void removeRegions(List<Region> targets) {
 		List<Area> dropped = new ArrayList<>();
 
@@ -418,9 +495,7 @@ public final class RegionEditor {
 		}
 	}
 
-	/**
-	 * 删除射线命中的最近范围（选区的最后一个范围被删掉时选区也消失），未命中则添加当前选区。
-	 */
+	/** 删除射线命中的最近范围（选区的最后一个范围被删掉时选区也消失），未命中则添加当前选区。 */
 	public static void toggleAreaAlongRay(Vec3 start, Vec3 end) {
 		Hit hit = pickArea(start, end);
 		if (hit != null) {
@@ -443,8 +518,7 @@ public final class RegionEditor {
 			if (rest.isEmpty()) {
 				SelectiveRenderingManager.REGIONS.remove(index);
 				dropSelectionIfGone();
-			}
-			else {
+			} else {
 				SelectiveRenderingManager.REGIONS.set(index, region.withAreas(rest));
 			}
 
@@ -454,9 +528,7 @@ public final class RegionEditor {
 		changed(List.of(area), List.of(area), false);
 	}
 
-	/**
-	 * 用当前双角点选区裁剪所有选区，裁出的新部分仍留在原来的选区里，保留当前角点。
-	 */
+	/** 用当前双角点选区裁剪所有选区，裁出的新部分仍留在原来的选区里，保留当前角点。 */
 	public static void clipRegions() {
 		Area cut = selection();
 		if (cut != null) {

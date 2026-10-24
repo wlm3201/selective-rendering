@@ -26,13 +26,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** 记录目标粒子的类型；Alpha 为 0 时直接丢弃*/
+/** 记录目标粒子的类型；Alpha 为 0 时直接丢弃 */
 @Mixin(ParticleEngine.class)
 public class ParticleEngineMixin {
-	@WrapOperation(
-		method = "createParticle",
-		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/particle/ParticleEngine;add(Lnet/minecraft/client/particle/Particle;)V")
-	)
+	@WrapOperation(method = "createParticle", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/particle/ParticleEngine;add(Lnet/minecraft/client/particle/Particle;)V"))
 	private void selectiveRendering$recordType(ParticleEngine engine, Particle particle, Operation<Void> original, @Local(argsOnly = true) ParticleOptions options) {
 		((ParticleTypeHolder) particle).selectiveRendering$setType(options.getType());
 		original.call(engine, particle);

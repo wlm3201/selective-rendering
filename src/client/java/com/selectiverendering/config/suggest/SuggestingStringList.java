@@ -4,7 +4,7 @@ import com.google.common.collect.ImmutableList;
 
 import fi.dy.masa.malilib.config.options.ConfigStringList;
 
-/** 带注册名补全的字符串名单*/
+/** 带注册名补全的字符串名单 */
 public final class SuggestingStringList extends ConfigStringList {
 	private final SuggestKind kind;
 

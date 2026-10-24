@@ -32,8 +32,7 @@ public class SectionCompilerMixin {
 		RenderSectionRegion region,
 		VertexSorting vertexSorting,
 		SectionBufferBuilderPack builders,
-		CallbackInfoReturnable<SectionCompiler.Results> cir
-	) {
+		CallbackInfoReturnable<SectionCompiler.Results> cir) {
 		selectiveRendering$region.set(region);
 		TerrainTranslucency.begin(sectionPos.asLong());
 	}
@@ -44,17 +43,12 @@ public class SectionCompilerMixin {
 		RenderSectionRegion region,
 		VertexSorting vertexSorting,
 		SectionBufferBuilderPack builders,
-		CallbackInfoReturnable<SectionCompiler.Results> cir
-	) {
+		CallbackInfoReturnable<SectionCompiler.Results> cir) {
 		selectiveRendering$region.remove();
 		TerrainTranslucency.finish(true);
 	}
 
-	@WrapOperation(
-		method = "compile",
-		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/chunk/VisGraph;setOpaque(Lnet/minecraft/core/BlockPos;)V"),
-		require = 1
-	)
+	@WrapOperation(method = "compile", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/chunk/VisGraph;setOpaque(Lnet/minecraft/core/BlockPos;)V"), require = 1)
 	private void selectiveRendering$setOpaque(VisGraph instance, BlockPos pos, Operation<Void> original) {
 		if (AlphaGetter.isHiddenIn(selectiveRendering$region.get(), pos)) {
 			return;

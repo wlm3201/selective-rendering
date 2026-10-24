@@ -6,9 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * 把一个选区的所有范围融合成一个整体线框：只保留融合后形状的真实棱，范围之间重叠、相邻的内部线和平整合并面上的线都不画。
- */
+/** 把一个选区的所有范围融合成一个整体线框：只保留融合后形状的真实棱，范围之间重叠、相邻的内部线和平整合并面上的线都不画。 */
 public final class RegionOutline {
 	/** 网格格子数超过这个值就放弃融合，逐个范围画线框。 */
 	private static final long MAX_CELLS = 400_000L;
@@ -76,8 +74,7 @@ public final class RegionOutline {
 
 					if (edge && start < 0) {
 						start = x;
-					}
-					else if (!edge && start >= 0) {
+					} else if (!edge && start >= 0) {
 						segments.add(new Segment(xs[start], ys[y], zs[z], xs[x], ys[y], zs[z]));
 						start = -1;
 					}
@@ -94,8 +91,7 @@ public final class RegionOutline {
 
 					if (edge && start < 0) {
 						start = y;
-					}
-					else if (!edge && start >= 0) {
+					} else if (!edge && start >= 0) {
 						segments.add(new Segment(xs[x], ys[start], zs[z], xs[x], ys[y], zs[z]));
 						start = -1;
 					}
@@ -112,8 +108,7 @@ public final class RegionOutline {
 
 					if (edge && start < 0) {
 						start = z;
-					}
-					else if (!edge && start >= 0) {
+					} else if (!edge && start >= 0) {
 						segments.add(new Segment(xs[x], ys[y], zs[start], xs[x], ys[y], zs[z]));
 						start = -1;
 					}
@@ -182,14 +177,12 @@ public final class RegionOutline {
 				b = at(x, y - 1, z);
 				c = at(x, y, z - 1);
 				d = at(x, y, z);
-			}
-			else if (axis == 1) {
+			} else if (axis == 1) {
 				a = at(x - 1, y, z - 1);
 				b = at(x - 1, y, z);
 				c = at(x, y, z - 1);
 				d = at(x, y, z);
-			}
-			else {
+			} else {
 				a = at(x - 1, y - 1, z);
 				b = at(x - 1, y, z);
 				c = at(x, y - 1, z);

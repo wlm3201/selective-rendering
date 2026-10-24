@@ -1,5 +1,6 @@
 package com.selectiverendering.config.region;
 
+import com.selectiverendering.SelectiveRenderingManager;
 import com.selectiverendering.config.suggest.SuggestKind;
 import com.selectiverendering.config.suggest.SuggestingStringList;
 import com.selectiverendering.config.entrypoint.ModConfigs;
@@ -21,19 +22,11 @@ final class RegionConfigs {
 		Region region = handle.region();
 		List<ConfigOptionWrapper> rows = new ArrayList<>();
 
-		int index = 1;
-		for (Area area : region.areas()) {
-			rows.add(new ConfigOptionWrapper(new RegionAreaConfig(handle, area, index)));
-			rows.add(new ConfigOptionWrapper(new RegionCornerConfig(handle, area, index, true)));
-			rows.add(new ConfigOptionWrapper(new RegionCornerConfig(handle, area, index, false)));
-			index++;
-		}
-
 		rows.add(new ConfigOptionWrapper(new RegionTargetsConfig(handle)));
 
-		ConfigInteger alpha = new ConfigInteger("region_alpha", -1, -1, 255, true).apply(ModConfigs.KEY);
-		alpha.setIntegerValue(region.options().alphaOverride());
-		alpha.setValueChangeCallback(config -> handle.update(options -> options.withAlphaOverride(config.getIntegerValue())));
+		ConfigInteger alpha = new ConfigInteger("region_alpha", -1, -1, SelectiveRenderingManager.MAX_TRANSPARENCY, true).apply(ModConfigs.KEY);
+		alpha.setIntegerValue(region.options().transparencyOverride());
+		alpha.setValueChangeCallback(config -> handle.update(options -> options.withTransparencyOverride(config.getIntegerValue())));
 
 		SuggestingStringList rules = new SuggestingStringList("region_rules", SuggestKind.BLOCK).apply(ModConfigs.KEY);
 		rules.setStrings(region.options().ruleSources());
@@ -50,6 +43,16 @@ final class RegionConfigs {
 		rows.addAll(ConfigOptionWrapper.createFor(List.of(alpha, rules, entities, particles)));
 		rows.add(new ConfigOptionWrapper(new RegionOffsetConfig(handle)));
 		rows.add(new ConfigOptionWrapper(new RegionMergeConfig(handle)));
+
+		// 范围列表放最后：范围多的时候它很长，别把上面的设置顶下去。
+		int index = 1;
+		for (Area area : region.areas()) {
+			rows.add(new ConfigOptionWrapper(new RegionAreaConfig(handle, area, index)));
+			rows.add(new ConfigOptionWrapper(new RegionCornerConfig(handle, area, index, true)));
+			rows.add(new ConfigOptionWrapper(new RegionCornerConfig(handle, area, index, false)));
+			index++;
+		}
+
 		return rows;
 	}
 

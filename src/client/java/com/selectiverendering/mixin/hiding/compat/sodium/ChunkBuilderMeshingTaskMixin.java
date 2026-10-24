@@ -32,36 +32,18 @@ public class ChunkBuilderMeshingTaskMixin {
 	private static final ThreadLocal<BlockGetter> selectiveRendering$slice = new ThreadLocal<>();
 
 	// 完整描述符排除合成桥方法，并要求遮挡图注入成功。
-	@Inject(
-		method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;",
-		at = @At("HEAD"),
-		remap = false,
-		require = 1
-	)
+	@Inject(method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;", at = @At("HEAD"), remap = false, require = 1)
 	private void selectiveRendering$beginExecute(ChunkBuildContext buildContext, CancellationToken cancellationToken, CallbackInfoReturnable<ChunkBuildOutput> cir) {
 		selectiveRendering$slice.set(buildContext.cache.getWorldSlice());
 		TerrainTranslucency.begin(renderContext.getOrigin().asLong());
 	}
 
-	@Inject(
-		method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;",
-		at = @At("RETURN"),
-		remap = false,
-		require = 1
-	)
+	@Inject(method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;", at = @At("RETURN"), remap = false, require = 1)
 	private void selectiveRendering$endExecute(ChunkBuildContext buildContext, CancellationToken cancellationToken, CallbackInfoReturnable<ChunkBuildOutput> cir) {
 		TerrainTranslucency.finish(cir.getReturnValue() != null);
 	}
 
-	@WrapOperation(
-		method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;",
-		at = @At(
-			value = "INVOKE",
-			target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/occlusion/DirectionalVisGraph;setOpaque(III)V"
-		),
-		remap = false,
-		require = 1
-	)
+	@WrapOperation(method = "execute(Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildContext;Lnet/caffeinemc/mods/sodium/client/util/task/CancellationToken;)Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/ChunkBuildOutput;", at = @At(value = "INVOKE", target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/occlusion/DirectionalVisGraph;setOpaque(III)V"), remap = false, require = 1)
 	private void selectiveRendering$setOpaque(DirectionalVisGraph graph, int x, int y, int z, Operation<Void> original) {
 		BlockGetter slice = selectiveRendering$slice.get();
 		if (slice != null && AlphaGetter.isHiddenIn(slice, worldPos(x, y, z))) {

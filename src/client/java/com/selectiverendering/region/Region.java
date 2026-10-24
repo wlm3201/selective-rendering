@@ -179,8 +179,7 @@ public final class Region {
 				CompoundTag tag = TagParser.parseCompoundFully(text.substring(brace));
 				options = RegionOptions.fromTag(tag);
 				color = tag.getIntOr("color", color);
-			}
-			catch (CommandSyntaxException e) {
+			} catch (CommandSyntaxException e) {
 				return null;
 			}
 

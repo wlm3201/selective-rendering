@@ -1,6 +1,5 @@
 package com.selectiverendering.config.entrypoint;
 
-import com.selectiverendering.interaction.ProjectionControls;
 import net.minecraft.network.chat.Component;
 import com.selectiverendering.region.RegionHistory;
 import com.selectiverendering.matchingrule.BlockListMessage;
@@ -53,15 +52,12 @@ public final class ModConfigs {
 	public static final ConfigHotkey REGION_KEY = new ConfigHotkey("region_key", "LEFT_CONTROL", KeybindSettings.MODIFIER_INGAME).apply(KEY);
 	public static final ConfigHotkey UNDO_KEY = new ConfigHotkey("undo_key", "LEFT_CONTROL,Z", KeybindSettings.DEFAULT).apply(KEY);
 	public static final ConfigHotkey REDO_KEY = new ConfigHotkey("redo_key", "LEFT_CONTROL,Y", KeybindSettings.DEFAULT).apply(KEY);
-	public static final ConfigHotkey PROJECT_LEFT = new ConfigHotkey("project_left", "LEFT_CONTROL,LEFT", KeybindSettings.DEFAULT).apply(KEY);
-	public static final ConfigHotkey PROJECT_RIGHT = new ConfigHotkey("project_right", "LEFT_CONTROL,RIGHT", KeybindSettings.DEFAULT).apply(KEY);
-	public static final ConfigHotkey PROJECT_FORWARD = new ConfigHotkey("project_forward", "LEFT_CONTROL,UP", KeybindSettings.DEFAULT).apply(KEY);
-	public static final ConfigHotkey PROJECT_BACK = new ConfigHotkey("project_back", "LEFT_CONTROL,DOWN", KeybindSettings.DEFAULT).apply(KEY);
 	public static final ConfigHotkey OPEN_CONFIG_GUI = new ConfigHotkey("open_config_gui", "X,V", KeybindSettings.DEFAULT).apply(KEY);
 	public static final ConfigString WAND = new ConfigString("wand", SelectiveRenderingManager.DEFAULT_WAND).apply(KEY);
 	public static final ConfigBoolean FULL_BRIGHT = new ConfigBoolean("full_bright", SelectiveRenderingManager.DEFAULT_FULL_BRIGHT).apply(KEY);
-	public static final ConfigBoolean BUILD_HIDDEN_MESH = new ConfigBoolean("build_hidden_mesh", SelectiveRenderingManager.DEFAULT_BUILD_HIDDEN_MESH).apply(KEY);
+
 	public static final ConfigBooleanHotkeyed PASS_THROUGH = new ConfigBooleanHotkeyed("pass_through", SelectiveRenderingManager.DEFAULT_PASS_THROUGH, "").apply(KEY);
+	public static final ConfigBoolean PASS_THROUGH_ENTITIES = new ConfigBoolean("pass_through_entities", SelectiveRenderingManager.DEFAULT_PASS_THROUGH_ENTITIES).apply(KEY);
 	public static final SuggestingStringList RECORDED = new SuggestingStringList("recorded", SuggestKind.BLOCK).apply(KEY);
 	public static final ConfigOptionList RECORD_MODE = new ConfigOptionList("record_mode", SelectiveRenderingManager.DEFAULT_RECORD_MODE).apply(KEY);
 	public static final ConfigOptionList RECORD_APPLY_MODE = new ConfigOptionList("record_apply_mode", SelectiveRenderingManager.DEFAULT_RECORD_APPLY_MODE).apply(KEY);
@@ -76,22 +72,17 @@ public final class ModConfigs {
 		REGION_KEY,
 		UNDO_KEY,
 		REDO_KEY,
-		PROJECT_LEFT,
-		PROJECT_RIGHT,
-		PROJECT_FORWARD,
-		PROJECT_BACK,
 		OPEN_CONFIG_GUI,
 		WAND,
 		FULL_BRIGHT,
-		BUILD_HIDDEN_MESH,
 		PASS_THROUGH,
+		PASS_THROUGH_ENTITIES,
 		RECORDED,
 		RECORD_MODE,
 		RECORD_APPLY_MODE,
-		RECORD_KEY
-	);
+		RECORD_KEY);
 
-	private static final List<ConfigHotkey> HOTKEY_LIST = List.of(OPEN_CONFIG_GUI, REGION_KEY, OPERATION_KEY, RECORD_KEY, UNDO_KEY, REDO_KEY, PROJECT_LEFT, PROJECT_RIGHT, PROJECT_FORWARD, PROJECT_BACK);
+	private static final List<ConfigHotkey> HOTKEY_LIST = List.of(OPEN_CONFIG_GUI, REGION_KEY, OPERATION_KEY, RECORD_KEY, UNDO_KEY, REDO_KEY);
 	// 仅保存键位；开关值由 manager 保存。
 	private static final List<IHotkey> TOGGLE_LIST = List.of(PASS_THROUGH);
 
@@ -107,8 +98,8 @@ public final class ModConfigs {
 		RULES.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setRuleSources(config.getStrings())));
 		WAND.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setWand(config.getStringValue())));
 		FULL_BRIGHT.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setFullBright(config.getBooleanValue())));
-		BUILD_HIDDEN_MESH.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setBuildHiddenMesh(config.getBooleanValue())));
 		PASS_THROUGH.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setPassThrough(config.getBooleanValue())));
+		PASS_THROUGH_ENTITIES.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setPassThroughEntities(config.getBooleanValue())));
 		RECORDED.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setRecordSources(config.getStrings())));
 		RECORD_MODE.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setRecordMode((RecordMode) config.getOptionListValue())));
 		RECORD_APPLY_MODE.setValueChangeCallback(config -> write(() -> SelectiveRenderingManager.setRecordApplyMode((RecordApplyMode) config.getOptionListValue())));
@@ -129,10 +120,6 @@ public final class ModConfigs {
 			}
 			return true;
 		});
-		bindProjection(PROJECT_LEFT, ProjectionControls.Move.LEFT);
-		bindProjection(PROJECT_RIGHT, ProjectionControls.Move.RIGHT);
-		bindProjection(PROJECT_FORWARD, ProjectionControls.Move.FORWARD);
-		bindProjection(PROJECT_BACK, ProjectionControls.Move.BACK);
 		UNDO_KEY.getKeybind().setCallback((action, key) -> {
 			if (action == KeyAction.PRESS) {
 				BlockListMessage.note(Component.translatable(SelectiveRendering.MOD_ID + (RegionHistory.undo() ? ".message.undo" : ".message.nothing_to_undo")).getString());
@@ -153,12 +140,21 @@ public final class ModConfigs {
 		});
 		InputEventHandler.getKeybindManager().registerKeybindProvider(new KeybindProvider());
 
-		Registry.CONFIG_SCREEN.registerConfigScreenFactory(
-			new ModInfo(SelectiveRendering.MOD_ID, MOD_NAME, () -> new ModConfigGui(GuiUtils.getCurrentScreen()))
-		);
+		registerConfigScreen();
 		ConfigManager.getInstance().registerConfigHandler(SelectiveRendering.MOD_ID, new Handler());
 
 		syncFromManager();
+	}
+
+	/**
+	 * 用正式名字登记本 mod 的配置界面。
+	 * MaLiLib 的界面登记表是以 mod id 为键的，任何继承 GuiConfigsBase 的界面在找不到自己时都会
+	 * 用 splitCamelCase(modId) 重新登记一条（"Selective _rendering"），把这里登记的正式名字覆盖掉，
+	 * 所以在打开配置界面前都要重新登记一次。
+	 */
+	public static void registerConfigScreen() {
+		Registry.CONFIG_SCREEN.registerConfigScreenFactory(
+			new ModInfo(SelectiveRendering.MOD_ID, MOD_NAME, () -> new ModConfigGui(GuiUtils.getCurrentScreen())));
 	}
 
 	public static void syncFromManager() {
@@ -170,8 +166,8 @@ public final class ModConfigs {
 			RULES.setStrings(SelectiveRenderingManager.ruleSources());
 			WAND.setValueFromString(SelectiveRenderingManager.getWand());
 			FULL_BRIGHT.setBooleanValue(SelectiveRenderingManager.isFullBright());
-			BUILD_HIDDEN_MESH.setBooleanValue(SelectiveRenderingManager.isBuildHiddenMesh());
 			PASS_THROUGH.setBooleanValue(SelectiveRenderingManager.isPassThrough());
+			PASS_THROUGH_ENTITIES.setBooleanValue(SelectiveRenderingManager.isPassThroughEntities());
 			RECORDED.setStrings(SelectiveRenderingManager.recordSources());
 			RECORD_MODE.setOptionListValue(SelectiveRenderingManager.getRecordMode());
 			RECORD_APPLY_MODE.setOptionListValue(SelectiveRenderingManager.getRecordApplyMode());
@@ -188,10 +184,6 @@ public final class ModConfigs {
 		if (!syncing) {
 			apply.run();
 		}
-	}
-
-	private static void bindProjection(ConfigHotkey key, ProjectionControls.Move move) {
-		key.getKeybind().setCallback((action, ignored) -> action == KeyAction.PRESS && ProjectionControls.move(move));
 	}
 
 	private static void readHotkeys() {
@@ -287,10 +279,6 @@ public final class ModConfigs {
 			manager.addKeybindToMap(REGION_KEY.getKeybind());
 			manager.addKeybindToMap(OPERATION_KEY.getKeybind());
 			manager.addKeybindToMap(UNDO_KEY.getKeybind());
-			manager.addKeybindToMap(PROJECT_LEFT.getKeybind());
-			manager.addKeybindToMap(PROJECT_RIGHT.getKeybind());
-			manager.addKeybindToMap(PROJECT_FORWARD.getKeybind());
-			manager.addKeybindToMap(PROJECT_BACK.getKeybind());
 			manager.addKeybindToMap(REDO_KEY.getKeybind());
 			manager.addKeybindToMap(PASS_THROUGH.getKeybind());
 		}
@@ -300,8 +288,7 @@ public final class ModConfigs {
 			manager.addHotkeysForCategory(
 				MOD_NAME,
 				SelectiveRendering.MOD_ID + ".hotkeys.category.main",
-				List.<IHotkey>of(RECORD_KEY, REGION_KEY, OPERATION_KEY, UNDO_KEY, REDO_KEY, PROJECT_LEFT, PROJECT_RIGHT, PROJECT_FORWARD, PROJECT_BACK, PASS_THROUGH, OPEN_CONFIG_GUI)
-			);
+				List.<IHotkey>of(RECORD_KEY, REGION_KEY, OPERATION_KEY, UNDO_KEY, REDO_KEY, PASS_THROUGH, OPEN_CONFIG_GUI));
 		}
 	}
 }

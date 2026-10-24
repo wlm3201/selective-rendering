@@ -10,12 +10,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-
 public final class TerrainTranslucency {
 	// alpha 是截流时的透明度，global 表示它等于当时的全局透明度（之后跟随配置变化，不用重建）。
 	/** raw 为真：颜色里还没有烘焙阴影和 AO（投影的四边形），重算光照时按投影自己的光照场再加。 */
-	public record Quad(float[] positions, float[] uvs, int[] colors, int[] lights, float normalX, float normalY, float normalZ, int alpha, boolean global, boolean translucent, java.util.UUID region, boolean raw) {
-			public Quad withRegion(java.util.UUID region) {
+	public record Quad(float[] positions, float[] uvs, int[] colors, int[] lights, float normalX, float normalY, float normalZ, int alpha, boolean global, boolean translucent, java.util.UUID region,
+		boolean raw) {
+		public Quad withRegion(java.util.UUID region) {
 			return new Quad(positions, uvs, colors, lights, normalX, normalY, normalZ, alpha, false, translucent, region, raw);
 		}
 	}
@@ -47,7 +47,23 @@ public final class TerrainTranslucency {
 	}
 
 	public static void begin(long section) {
-		BUILDER.set(new Builder(section, true));
+		BUILDER.set(new Builder(section, captureWanted()));
+	}
+
+	/**
+	 * 是否要把淡化地形的四边形截流到常驻管线。
+	 *
+	 * <p>只有光影包生效时需要：光影接管地形后，区块网格在光影下做不了半透明，只能把四边形存下来，
+	 * 用实体管线的顶点格式重新提交。
+	 *
+	 * <p>不开光影时把 alpha 直接烘焙进区块网格（换成半透明材质后写回网格），交给 MC / Sodium 自己的
+	 * 地形管线：编译期一次开销，之后每帧零成本，也不会绕开 Sodium 的批处理和遮挡剔除。
+	 *
+	 * <p>投影不受影响：投影的四边形由 {@link #projecting(BlockPos)} 单独采集，与这里无关，
+	 * 所以启用投影时真实地形照样可以走烘焙。
+	 */
+	public static boolean captureWanted() {
+		return ShaderPackState.active();
 	}
 
 	public static void finish(boolean completed) {
@@ -65,8 +81,7 @@ public final class TerrainTranslucency {
 			if (projected == null || projected.isEmpty()) {
 				PROJECTED.remove(key);
 				PROJECTED_SPRITES.remove(key);
-			}
-			else {
+			} else {
 				PROJECTED_SPRITES.put(key, builder.sprites);
 				PROJECTED.put(key, projected);
 			}
@@ -78,8 +93,7 @@ public final class TerrainTranslucency {
 		if (builder.quads.isEmpty()) {
 			SECTIONS.remove(builder.section);
 			SPRITES.remove(builder.section);
-		}
-		else {
+		} else {
 			SPRITES.put(builder.section, builder.sprites);
 			RetainedTerrain.prebuild(builder.section, builder.quads);
 			SECTIONS.put(builder.section, builder.quads);

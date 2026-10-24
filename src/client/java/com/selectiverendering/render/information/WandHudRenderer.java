@@ -56,7 +56,7 @@ public final class WandHudRenderer {
 		Minecraft minecraft = Minecraft.getInstance();
 		Font font = minecraft.font;
 
-        BlockListMessage.render(graphics, font);
+		BlockListMessage.render(graphics, font);
 
 		if (!SelectiveRendering.isWandHeld()) {
 			return;
@@ -133,8 +133,7 @@ public final class WandHudRenderer {
 		Component label = Component.translatable(
 			SelectiveRendering.MOD_ID + ".hud.region_selected",
 			String.valueOf(SelectiveRenderingManager.regions().indexOf(region) + 1),
-			String.valueOf(region.areas().size())
-		);
+			String.valueOf(region.areas().size()));
 
 		int textX = x + 14;
 		graphics.text(font, label, textX, y + (SELECTED_ROW - font.lineHeight) / 2, TEXT, true);
@@ -166,8 +165,7 @@ public final class WandHudRenderer {
 
 		if (BlockChangeRecorder.isRecording()) {
 			lines.add(Component.translatable(prefix + "recording", String.valueOf(BlockChangeRecorder.count())));
-		}
-		else {
+		} else {
 			lines.add(Component.empty());
 		}
 
@@ -187,6 +185,15 @@ public final class WandHudRenderer {
 
 	private static String corner(BlockPos pos) {
 		return pos == null ? "?" : pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
+	}
+
+	/** Alt + 滚轮作用在唯一选中的目标上，提示按当前选中的东西换一行。 */
+	private static String moveHint() {
+		if (SelectiveRenderingManager.selectedRegion() != null) {
+			return "move_projection";
+		}
+
+		return RegionEditor.isSelectionSelected() ? "move_selection" : "move_corner";
 	}
 
 	private static List<Hint> hints() {
@@ -209,8 +216,7 @@ public final class WandHudRenderer {
 			String scope = OperationActions.scope(SelectiveRenderingManager.selectedRegion());
 			hints.add(Hint.of(Component.translatable(prefix + "operation_left", scope), HOTKEY, MOUSE_LEFT));
 			hints.add(Hint.of(Component.translatable(prefix + "operation_right", scope), HOTKEY, MOUSE_RIGHT));
-			hints.add(Hint.of(Component.translatable(prefix + "select_corner"), MOUSE_MIDDLE));
-			hints.add(Hint.of(Component.translatable(prefix + "move_corner"), HOTKEY, MOUSE));
+			hints.add(Hint.of(Component.translatable(prefix + moveHint()), HOTKEY, MOUSE));
 			return hints;
 		}
 
@@ -222,10 +228,6 @@ public final class WandHudRenderer {
 
 		if (record != null) {
 			hints.add(Hint.of(Component.translatable(prefix + "record", record), HOTKEY));
-		}
-
-		if (config != null) {
-			hints.add(Hint.of(Component.translatable(prefix + "config", config), HOTKEY));
 		}
 
 		return hints;

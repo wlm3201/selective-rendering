@@ -1,6 +1,5 @@
 package com.selectiverendering.mixin.region;
 
-import com.selectiverendering.region.Region;
 import com.selectiverendering.interaction.ProjectionControls;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.Window;
@@ -30,12 +29,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = MouseHandler.class, priority = 2000)
 public class MouseHandlerMixin {
 	@Unique
-    private static final int ACTION_PRESS = 1;
+	private static final int ACTION_PRESS = 1;
 	@Unique
-    private static final float STEEP_PITCH = 60.0F;
+	private static final float STEEP_PITCH = 60.0F;
 
 	@Unique
-    private static final double MAX_TRACE_DISTANCE = 200.0;
+	private static final double MAX_TRACE_DISTANCE = 200.0;
 
 	@Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
 	private void selectiveRendering$onScroll(long window, double xOffset, double yOffset, CallbackInfo ci) {
@@ -55,21 +54,14 @@ public class MouseHandlerMixin {
 		int direction = yOffset > 0 ? 1 : -1;
 		Window handle = minecraft.getWindow();
 
+		// Ctrl 只管切模式，Alt 只管移动当前选中的目标。
 		if (Platform.isKeyDown(handle, InputConstants.KEY_LCONTROL)) {
-			Region selected = SelectiveRenderingManager.selectedRegion();
-			if (selected != null) {
-				ProjectionControls.scroll(selected, lookingDirection(minecraft), direction);
-				ci.cancel();
-				return;
-			}
-
 			SelectiveRenderingManager.cycleMode(direction);
 			ci.cancel();
 			return;
 		}
 
-		if (Platform.isKeyDown(handle, InputConstants.KEY_LALT)) {
-			RegionEditor.moveSelectedCorner(lookingDirection(minecraft), direction);
+		if (Platform.isKeyDown(handle, InputConstants.KEY_LALT) && ProjectionControls.scroll(lookingDirection(minecraft), direction)) {
 			ci.cancel();
 		}
 	}
@@ -105,8 +97,7 @@ public class MouseHandlerMixin {
 				RegionEditor.toggleAreaAlongRay(rayStart(minecraft), rayEnd(minecraft));
 				Platform.swingMainHand(minecraft);
 				ci.cancel();
-			}
-			else if (buttonInfo.button() == Platform.MOUSE_RIGHT) {
+			} else if (buttonInfo.button() == Platform.MOUSE_RIGHT) {
 				RegionEditor.clipRegions();
 				Platform.swingMainHand(minecraft);
 				ci.cancel();
@@ -114,36 +105,34 @@ public class MouseHandlerMixin {
 			return;
 		}
 
-        if (ModHotkeys.operationHeld()) {
-        	int button = buttonInfo.button();
-        	if ((button == Platform.MOUSE_LEFT || button == Platform.MOUSE_RIGHT) && OperationActions.operate(minecraft, camera, button == Platform.MOUSE_RIGHT)) {
-        		Platform.swingMainHand(minecraft);
-        		ci.cancel();
-        	}
-        	return;
-        }
-
-        Window handle = minecraft.getWindow();
-        boolean shift = Platform.isKeyDown(handle, InputConstants.KEY_LSHIFT) || Platform.isKeyDown(handle, InputConstants.KEY_RSHIFT);
-        if (shift && buttonInfo.button() == Platform.MOUSE_LEFT) {
-            RegionEditor.clearCorners();
-            Platform.swingMainHand(minecraft);
-            ci.cancel();
-            return;
-        }
-
-        BlockHitResult hit = CameraRay.pick(minecraft, camera, MAX_TRACE_DISTANCE);
-        if (hit.getType() == HitResult.Type.MISS) {
+		if (ModHotkeys.operationHeld()) {
+			int button = buttonInfo.button();
+			if ((button == Platform.MOUSE_LEFT || button == Platform.MOUSE_RIGHT) && OperationActions.operate(minecraft, camera, button == Platform.MOUSE_RIGHT)) {
+				Platform.swingMainHand(minecraft);
+				ci.cancel();
+			}
 			return;
 		}
 
+		Window handle = minecraft.getWindow();
+		boolean shift = Platform.isKeyDown(handle, InputConstants.KEY_LSHIFT) || Platform.isKeyDown(handle, InputConstants.KEY_RSHIFT);
+		if (shift && buttonInfo.button() == Platform.MOUSE_LEFT) {
+			RegionEditor.clearCorners();
+			Platform.swingMainHand(minecraft);
+			ci.cancel();
+			return;
+		}
+
+		BlockHitResult hit = CameraRay.pick(minecraft, camera, MAX_TRACE_DISTANCE);
+		if (hit.getType() == HitResult.Type.MISS) {
+			return;
+		}
 
 		if (buttonInfo.button() == Platform.MOUSE_LEFT) {
 			RegionEditor.setCorner(0, hit.getBlockPos());
 			Platform.swingMainHand(minecraft);
 			ci.cancel();
-		}
-		else if (buttonInfo.button() == Platform.MOUSE_RIGHT) {
+		} else if (buttonInfo.button() == Platform.MOUSE_RIGHT) {
 			RegionEditor.setCorner(1, hit.getBlockPos());
 			Platform.swingMainHand(minecraft);
 			ci.cancel();

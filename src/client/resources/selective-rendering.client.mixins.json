@@ -28,6 +28,7 @@
 		"hiding.entity.EntityRenderStateMixin",
 		"hiding.entity.EntityRendererMixin",
 		"interaction.ClientLevelClipMixin",
+		"interaction.LocalPlayerPickMixin",
 		"lighting.AreaLightFlushMixin",
 		"lighting.AreaLightPacketMixin",
 		"lighting.BlockModelLighterMixin",

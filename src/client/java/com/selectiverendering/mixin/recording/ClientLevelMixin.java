@@ -19,11 +19,7 @@ public class ClientLevelMixin {
 		BlockChangeRecorder.note(pos, state);
 	}
 
-	@Inject(
-		method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z",
-		at = @At("HEAD"),
-		require = 1
-	)
+	@Inject(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z", at = @At("HEAD"), require = 1)
 	private void selectiveRendering$notePistonMove(BlockPos pos, BlockState state, int flags, int limit, CallbackInfoReturnable<Boolean> cir) {
 		if (state.getBlock() == Blocks.MOVING_PISTON) {
 			BlockChangeRecorder.noteMoving(pos);

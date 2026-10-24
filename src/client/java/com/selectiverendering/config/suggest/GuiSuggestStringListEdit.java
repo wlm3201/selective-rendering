@@ -23,7 +23,7 @@ import fi.dy.masa.malilib.gui.widgets.WidgetStringListEditEntry;
 import fi.dy.masa.malilib.render.GuiContext;
 import fi.dy.masa.malilib.render.RenderUtils;
 
-/** 带注册名补全的 malilib 字符串列表编辑界面*/
+/** 带注册名补全的 malilib 字符串列表编辑界面 */
 public final class GuiSuggestStringListEdit extends GuiStringListEdit {
 	private static final int VISIBLE = 8;
 	private static final int INVALID_COLOR = 0xFFFF8080;
@@ -159,8 +159,7 @@ public final class GuiSuggestStringListEdit extends GuiStringListEdit {
 
 				if (this.selected < this.top) {
 					this.top = this.selected;
-				}
-				else if (this.selected >= this.top + VISIBLE) {
+				} else if (this.selected >= this.top + VISIBLE) {
 					this.top = this.selected - VISIBLE + 1;
 				}
 
@@ -189,7 +188,7 @@ public final class GuiSuggestStringListEdit extends GuiStringListEdit {
 		return super.onMouseClicked(event, doubleClick);
 	}
 
-	/** 把每一行换成能让外面找到输入框的版本*/
+	/** 把每一行换成能让外面找到输入框的版本 */
 	private static final class SuggestList extends WidgetListStringListEdit {
 		SuggestList(int x, int y, int width, int height, int labelWidth, GuiStringListEdit gui) {
 			super(x, y, width, height, labelWidth, gui);

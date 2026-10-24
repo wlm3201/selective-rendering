@@ -20,9 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
-/**
- * 源范围里的粒子可能不在视野里，不处理的话会被原版的视锥剔除掉
- */
+/** 源范围里的粒子可能不在视野里，不处理的话会被原版的视锥剔除掉 */
 @Mixin(QuadParticleGroup.class)
 public abstract class QuadParticleGroupMixin extends ParticleGroup<SingleQuadParticle> {
 	@Shadow
@@ -57,8 +55,7 @@ public abstract class QuadParticleGroupMixin extends ParticleGroup<SingleQuadPar
 						particle.extract(this.particleTypeRenderState, camera, partialTickTime);
 					}
 				}
-			}
-			finally {
+			} finally {
 				ProjectionPass.endParticle();
 			}
 		}

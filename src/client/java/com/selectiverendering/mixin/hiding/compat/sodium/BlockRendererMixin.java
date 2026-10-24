@@ -39,10 +39,6 @@ public class BlockRendererMixin {
 	@Final
 	private Vector3f posOffset;
 
-	/** 位于方块边界的面向内收一点，避免和相邻方块的面共面闪烁。 */
-	@Unique
-	private static final float CAPTURE_INSET = 0.005F;
-
 	/** 当前正在渲染的方块的世界坐标，用来判断它在不在投影范围里。 */
 	@Unique
 	private BlockPos selectiveRendering$pos;
@@ -58,7 +54,7 @@ public class BlockRendererMixin {
 
 		try {
 			// 被隐藏的方块如果在投影的源范围里，也要走一遍，好把它的四边形复制给投影（真实网格里仍然不出现）。
-			if (alpha != 0 || (TerrainTranslucency.capturing() && SelectiveRenderingManager.isBuildHiddenMesh()) || TerrainTranslucency.projecting(pos)) {
+			if (alpha != 0 || TerrainTranslucency.projecting(pos)) {
 				original.call(model, state, pos, origin);
 			}
 		} finally {
@@ -98,7 +94,7 @@ public class BlockRendererMixin {
 			return;
 		}
 
-		if (TerrainTranslucency.capturing() && (alpha > 0 || SelectiveRenderingManager.isBuildHiddenMesh())) {
+		if (TerrainTranslucency.capturing() && alpha > 0) {
 			this.selectiveRendering$capture(quad, brightnesses, alpha);
 			ci.cancel();
 			return;
@@ -115,14 +111,7 @@ public class BlockRendererMixin {
 		}
 	}
 
-	@ModifyArg(
-		method = "processQuad",
-		at = @At(
-			value = "INVOKE",
-			target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/pipeline/BlockRenderer;bufferQuad(Lnet/caffeinemc/mods/sodium/client/render/model/MutableQuadViewImpl;[FLnet/caffeinemc/mods/sodium/client/render/chunk/terrain/material/Material;)V"
-		),
-		index = 2
-	)
+	@ModifyArg(method = "processQuad", at = @At(value = "INVOKE", target = "Lnet/caffeinemc/mods/sodium/client/render/chunk/compile/pipeline/BlockRenderer;bufferQuad(Lnet/caffeinemc/mods/sodium/client/render/model/MutableQuadViewImpl;[FLnet/caffeinemc/mods/sodium/client/render/chunk/terrain/material/Material;)V"), index = 2)
 	private Material selectiveRendering$useTranslucentMaterial(Material material) {
 		int alpha = this.selectiveRendering$alpha();
 		return alpha > 0 && alpha < 255 ? DefaultMaterials.TRANSLUCENT : material;
@@ -135,7 +124,7 @@ public class BlockRendererMixin {
 		TerrainTranslucency.addCaptured(this.selectiveRendering$pos, this.selectiveRendering$buildQuad(quad, brightnesses, alpha, true, true));
 	}
 
-	/** 把 Sodium 的一个四边形转成区段内坐标的四边形；capture 为真时边界面向内收，透明度跟随全局。 */
+	/** 把 Sodium 的一个四边形转成区段内坐标的四边形；capture 为真时透明度跟随全局。顶点位置不做任何偏移。 */
 	@Unique
 	private TerrainTranslucency.Quad selectiveRendering$buildQuad(MutableQuadViewImpl quad, float[] brightnesses, int alpha, boolean capture, boolean translucent) {
 		float[] positions = new float[12];
@@ -144,14 +133,13 @@ public class BlockRendererMixin {
 		int[] lights = new int[4];
 
 		Vector3f normal = quad.faceNormal();
-		float inset = capture && quad.getCullFace() != null ? CAPTURE_INSET : 0.0F;
 
 		for (int i = 0; i < 4; i++) {
 			int source = ModelQuadOrientation.NORMAL.getVertexIndex(i);
 
-			positions[i * 3] = quad.getX(source) + this.posOffset.x - normal.x() * inset;
-			positions[i * 3 + 1] = quad.getY(source) + this.posOffset.y - normal.y() * inset;
-			positions[i * 3 + 2] = quad.getZ(source) + this.posOffset.z - normal.z() * inset;
+			positions[i * 3] = quad.getX(source) + this.posOffset.x;
+			positions[i * 3 + 1] = quad.getY(source) + this.posOffset.y;
+			positions[i * 3 + 2] = quad.getZ(source) + this.posOffset.z;
 
 			uvs[i * 2] = quad.getTexU(source);
 			uvs[i * 2 + 1] = quad.getTexV(source);
@@ -167,7 +155,8 @@ public class BlockRendererMixin {
 			lights[i] = quad.getLight(source);
 		}
 
-		return new TerrainTranslucency.Quad(positions, uvs, colors, lights, normal.x(), normal.y(), normal.z(), alpha, capture && alpha == SelectiveRenderingManager.config().alpha(), translucent, null, !capture);
+		return new TerrainTranslucency.Quad(positions, uvs, colors, lights, normal.x(), normal.y(), normal.z(), alpha, capture && alpha == SelectiveRenderingManager.config().alpha(), translucent,
+			null, !capture);
 	}
 
 	@Unique

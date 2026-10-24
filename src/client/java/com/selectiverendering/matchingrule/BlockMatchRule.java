@@ -161,11 +161,9 @@ public final class BlockMatchRule {
 		TagKey<Block> tag = null;
 
 		if (isAny(target)) {
-		}
-		else if (target.startsWith("#")) {
+		} else if (target.startsWith("#")) {
 			tag = parseTag(target.substring(1));
-		}
-		else {
+		} else {
 			Identifier identifier = Identifier.tryParse(target.contains(":") ? target : "minecraft:" + target);
 			if (identifier == null) {
 				if (log) {

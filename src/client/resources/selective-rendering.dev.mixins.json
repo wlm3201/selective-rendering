@@ -4,7 +4,8 @@
 	"package": "com.selectiverendering.dev",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
-		"StrictValidationMixin"
+		"StrictValidationMixin",
+		"DisableDrawValidationMixin"
 	],
 	"injectors": {
 		"defaultRequire": 0

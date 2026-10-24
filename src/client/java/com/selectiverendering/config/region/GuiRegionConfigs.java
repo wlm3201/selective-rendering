@@ -44,6 +44,13 @@ public final class GuiRegionConfigs extends GuiConfigsBase {
 	}
 
 	@Override
+	protected void buildConfigSwitcher() {
+		// 这是二级界面，MaLiLib 查不到它对应的登记项，会用 splitCamelCase(modId) 重新登记一条
+		// （"Selective _rendering"），把主界面的正式名字覆盖掉。这里只刷新登记，不建切换框。
+		ModConfigs.registerConfigScreen();
+	}
+
+	@Override
 	public List<ConfigOptionWrapper> getConfigs() {
 		return RegionConfigs.rows(this.handle);
 	}
@@ -51,37 +58,37 @@ public final class GuiRegionConfigs extends GuiConfigsBase {
 	@Override
 	protected WidgetListConfigOptions createListWidget(int listX, int listY) {
 		return new WidgetListConfigOptions(listX, listY,
-				this.getBrowserWidth(), this.getBrowserHeight(), this.getConfigWidth(), 0.f, this.useKeybindSearch(), this) {
+			this.getBrowserWidth(), this.getBrowserHeight(), this.getConfigWidth(), 0.f, this.useKeybindSearch(), this) {
 			@Override
 			protected WidgetConfigOption createListEntryWidget(int x, int y, int listIndex, boolean isOdd, ConfigOptionWrapper entry) {
 				if (entry.getConfig() instanceof SuggestingStringList) {
 					return new WidgetSuggestingList(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionAreaConfig) {
 					return new WidgetRegionArea(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionOffsetConfig) {
 					return new WidgetRegionOffset(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionMergeConfig) {
 					return new WidgetRegionMerge(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionCornerConfig) {
 					return new WidgetRegionCorner(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionTargetsConfig) {
 					return new WidgetRegionTargets(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				return super.createListEntryWidget(x, y, listIndex, isOdd, entry);

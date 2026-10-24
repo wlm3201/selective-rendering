@@ -45,7 +45,7 @@ public abstract class ModelBlockRendererMixin {
 	private static final ThreadLocal<BlockPos> selectiveRendering$blockPos = new ThreadLocal<>();
 
 	@Unique
-	private static final ThreadLocal<int[]> selectiveRendering$tint = ThreadLocal.withInitial(() -> new int[]{-1});
+	private static final ThreadLocal<int[]> selectiveRendering$tint = ThreadLocal.withInitial(() -> new int[] {-1});
 
 	@Shadow
 	@Final
@@ -65,8 +65,7 @@ public abstract class ModelBlockRendererMixin {
 		BlockState blockState,
 		BlockStateModel model,
 		long seed,
-		CallbackInfo ci
-	) {
+		CallbackInfo ci) {
 		selectiveRendering$blockAlpha.set(MovingBlockRenderContext.alpha() != -1 ? -1 : AlphaGetter.getAlpha(blockState, pos));
 		selectiveRendering$blockPos.set(pos.immutable());
 		selectiveRendering$forcedFaces.get()[0] = 0;
@@ -83,18 +82,18 @@ public abstract class ModelBlockRendererMixin {
 		BlockState blockState,
 		BlockStateModel model,
 		long seed,
-		CallbackInfo ci
-	) {
+		CallbackInfo ci) {
 		selectiveRendering$blockAlpha.set(-1);
 	}
 
 	@Inject(method = {"tesselateFlat", "tesselateAmbientOcclusion"}, at = @At("HEAD"), cancellable = true, require = 1)
-	private void selectiveRendering$tesselate(BlockQuadOutput output, float x, float y, float z, List<BlockStateModelPart> parts, BlockAndTintGetter level, BlockState state, BlockPos pos, CallbackInfo ci) {
+	private void selectiveRendering$tesselate(BlockQuadOutput output, float x, float y, float z, List<BlockStateModelPart> parts, BlockAndTintGetter level, BlockState state, BlockPos pos,
+		CallbackInfo ci) {
 		if (MovingBlockRenderContext.alpha() != -1) {
 			return;
 		}
 
-		if (selectiveRendering$blockAlpha.get() == 0 && !(TerrainTranslucency.capturing() && SelectiveRenderingManager.isBuildHiddenMesh()) && !TerrainTranslucency.projecting(pos)) {
+		if (selectiveRendering$blockAlpha.get() == 0 && !TerrainTranslucency.projecting(pos)) {
 			ci.cancel();
 		}
 	}
@@ -122,8 +121,7 @@ public abstract class ModelBlockRendererMixin {
 		BlockState state,
 		Direction direction,
 		BlockPos neighbourPos,
-		CallbackInfoReturnable<Boolean> cir
-	) {
+		CallbackInfoReturnable<Boolean> cir) {
 		if (SelectiveRenderingManager.getMode() == SelectiveRenderingManager.Mode.OFF) {
 			return;
 		}
@@ -161,11 +159,7 @@ public abstract class ModelBlockRendererMixin {
 	}
 
 	/** 半透明方块截流到常驻缓冲；否则把需淡化的 quad 切换为半透明材质。 */
-	@WrapOperation(
-		method = "putQuadWithTint",
-		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/block/BlockQuadOutput;put(FFFLnet/minecraft/client/resources/model/geometry/BakedQuad;Lcom/mojang/blaze3d/vertex/QuadInstance;)V"),
-		require = 1
-	)
+	@WrapOperation(method = "putQuadWithTint", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/block/BlockQuadOutput;put(FFFLnet/minecraft/client/resources/model/geometry/BakedQuad;Lcom/mojang/blaze3d/vertex/QuadInstance;)V"), require = 1)
 	private void selectiveRendering$putQuad(BlockQuadOutput output, float x, float y, float z, BakedQuad quad, QuadInstance instance, Operation<Void> original) {
 		if (MovingBlockRenderContext.alpha() != -1) {
 			original.call(output, x, y, z, quad, instance);
@@ -187,7 +181,7 @@ public abstract class ModelBlockRendererMixin {
 		}
 
 		int alpha = selectiveRendering$blockAlpha.get();
-		if (alpha == 0 && !(TerrainTranslucency.capturing() && SelectiveRenderingManager.isBuildHiddenMesh())) {
+		if (alpha == 0) {
 			// 被隐藏的方块只给投影用，不进真实网格。
 			return;
 		}
@@ -208,8 +202,7 @@ public abstract class ModelBlockRendererMixin {
 				quad.position0(), quad.position1(), quad.position2(), quad.position3(),
 				quad.packedUV0(), quad.packedUV1(), quad.packedUV2(), quad.packedUV3(),
 				quad.direction(),
-				Platform.translucentMaterial(material)
-			);
+				Platform.translucentMaterial(material));
 		}
 
 		original.call(output, x, y, z, quad, instance);

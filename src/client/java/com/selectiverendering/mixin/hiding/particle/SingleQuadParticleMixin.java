@@ -17,10 +17,7 @@ import org.spongepowered.asm.mixin.injection.At;
 
 @Mixin(SingleQuadParticle.class)
 public abstract class SingleQuadParticleMixin {
-	@WrapOperation(
-		method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V",
-		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/particle/SingleQuadParticle;getLayer()Lnet/minecraft/client/particle/SingleQuadParticle$Layer;")
-	)
+	@WrapOperation(method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/particle/SingleQuadParticle;getLayer()Lnet/minecraft/client/particle/SingleQuadParticle$Layer;"))
 	private SingleQuadParticle.Layer selectiveRendering$layer(SingleQuadParticle particle, Operation<SingleQuadParticle.Layer> original) {
 		SingleQuadParticle.Layer layer = original.call(particle);
 
@@ -39,10 +36,7 @@ public abstract class SingleQuadParticleMixin {
 		return layer == SingleQuadParticle.Layer.OPAQUE ? SingleQuadParticle.Layer.TRANSLUCENT : layer;
 	}
 
-	@WrapOperation(
-		method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V",
-		at = @At(value = "INVOKE", target = "Lnet/minecraft/util/ARGB;colorFromFloat(FFFF)I")
-	)
+	@WrapOperation(method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/ARGB;colorFromFloat(FFFF)I"))
 	private int selectiveRendering$color(float alpha, float red, float green, float blue, Operation<Integer> original) {
 		int hidden = selectiveRendering$alpha();
 		return original.call(hidden < 0 ? alpha : alpha * hidden / 255.0F, red, green, blue);
@@ -63,28 +57,19 @@ public abstract class SingleQuadParticleMixin {
 		original.call(state, camera, partialTickTime);
 	}
 
-	@ModifyVariable(
-		method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V",
-		at = @At("HEAD"), ordinal = 0, argsOnly = true
-	)
+	@ModifyVariable(method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V", at = @At("HEAD"), ordinal = 0, argsOnly = true)
 	private float selectiveRendering$shiftX(float x) {
 		ProjectionAreas.Active area = ProjectionPass.particleArea();
 		return area == null ? x : x + area.offsetX();
 	}
 
-	@ModifyVariable(
-		method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V",
-		at = @At("HEAD"), ordinal = 1, argsOnly = true
-	)
+	@ModifyVariable(method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V", at = @At("HEAD"), ordinal = 1, argsOnly = true)
 	private float selectiveRendering$shiftY(float y) {
 		ProjectionAreas.Active area = ProjectionPass.particleArea();
 		return area == null ? y : y + area.offsetY();
 	}
 
-	@ModifyVariable(
-		method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V",
-		at = @At("HEAD"), ordinal = 2, argsOnly = true
-	)
+	@ModifyVariable(method = "extractRotatedQuad(Lnet/minecraft/client/renderer/state/level/QuadParticleRenderState;Lorg/joml/Quaternionf;FFFF)V", at = @At("HEAD"), ordinal = 2, argsOnly = true)
 	private float selectiveRendering$shiftZ(float z) {
 		ProjectionAreas.Active area = ProjectionPass.particleArea();
 		return area == null ? z : z + area.offsetZ();

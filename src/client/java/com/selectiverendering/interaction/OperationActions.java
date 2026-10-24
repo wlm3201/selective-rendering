@@ -59,8 +59,8 @@ public final class OperationActions {
 		Entity closest = null;
 		double closestDistance = limit;
 
-        assert minecraft.level != null;
-        for (Entity entity : minecraft.level.getEntities(camera, new AABB(start, end).inflate(1.0), candidate -> !candidate.isSpectator())) {
+		assert minecraft.level != null;
+		for (Entity entity : minecraft.level.getEntities(camera, new AABB(start, end).inflate(1.0), candidate -> !candidate.isSpectator())) {
 			Optional<Vec3> hit = entity.getBoundingBox().inflate(entity.getPickRadius() + PICK_MARGIN).clip(start, end);
 			if (hit.isEmpty()) {
 				continue;
@@ -77,8 +77,8 @@ public final class OperationActions {
 	}
 
 	private static void toggleBlock(BlockHitResult hit, Minecraft minecraft, boolean withStates) {
-        assert minecraft.level != null;
-        BlockState state = minecraft.level.getBlockState(hit.getBlockPos());
+		assert minecraft.level != null;
+		BlockState state = minecraft.level.getBlockState(hit.getBlockPos());
 		if (state.isAir()) {
 			return;
 		}
@@ -110,18 +110,16 @@ public final class OperationActions {
 
 			if (listed) {
 				SelectiveRenderingManager.removeRule(source);
-			}
-			else {
+			} else {
 				SelectiveRenderingManager.addRule(source);
 			}
 
 			added = !listed;
-		}
-		else {
+		} else {
 			added = RegionEditor.toggleLocalRule(region, source);
 		}
 
-		BlockListMessage.show(source + "  (" + scope(region) + ")", added);
+		BlockListMessage.show(source + " (" + scope(region) + ")", added);
 	}
 
 	private static void toggleEntity(Entity entity, boolean detailed) {
@@ -143,10 +141,10 @@ public final class OperationActions {
 		}
 
 		boolean added = RegionEditor.toggleLocalEntityType(region, source);
-		BlockListMessage.show(source + "  (" + scope(region) + ")", added);
+		BlockListMessage.show(source + " · " + scope(region), added);
 	}
 
-	/** 当前操作写入哪份名单的说明*/
+	/** 当前操作写入哪份名单的说明 */
 	public static String scope(Region region) {
 		if (region == null) {
 			return Component.translatable(SelectiveRendering.MOD_ID + ".hint.scope_global").getString();

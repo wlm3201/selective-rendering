@@ -12,13 +12,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /** 让 Indigo 的淡化移动方块使用半透明 RenderType。 */
 @Mixin(targets = "net.fabricmc.fabric.api.client.renderer.v1.render.ChunkSectionLayerHelper", remap = false)
 public class FabricRendererApiMovingBlockMixin {
-	@Inject(
-		method = "getMovingBlockRenderType",
-		at = @At("RETURN"),
-		cancellable = true,
-		remap = false,
-		require = 0
-	)
+	@Inject(method = "getMovingBlockRenderType", at = @At("RETURN"), cancellable = true, remap = false, require = 0)
 	private static void selectiveRendering$translucentLayer(ChunkSectionLayer layer, CallbackInfoReturnable<RenderType> cir) {
 		int alpha = MovingBlockRenderContext.alpha();
 

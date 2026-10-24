@@ -17,10 +17,10 @@ public class FeatureRenderDispatcherMixin {
 	//? if >=26.2 {
 	@Inject(method = "prepareFrame", at = @At("TAIL"))
 	private void selectiveRendering$clearMarkedTypes(CallbackInfoReturnable<FeatureRenderDispatcher.PreparedFrame> cir) {
-	//?} else {
-	/*@Inject(method = "endFrame", at = @At("HEAD"))
-	private void selectiveRendering$clearMarkedTypes(CallbackInfo ci) {
-	*///?}
+		//?} else {
+		/*@Inject(method = "endFrame", at = @At("HEAD"))
+		private void selectiveRendering$clearMarkedTypes(CallbackInfo ci) {
+		*///?}
 		HiddenRenderTypes.clear();
 	}
 }

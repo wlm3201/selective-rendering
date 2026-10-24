@@ -1,8 +1,22 @@
 plugins {
 	id("dev.kikugie.stonecutter")
+	id("com.diffplug.spotless") version "8.10.4"
 }
 
 stonecutter active "26.3"
+
+repositories {
+	mavenCentral()
+}
+
+spotless {
+	java {
+		target("src/**/*.java")
+		eclipse().configFile("config/eclipse-formatter.xml")
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
 
 val collectedDir = layout.buildDirectory.dir("libs")
 val modVersion = property("version") as String

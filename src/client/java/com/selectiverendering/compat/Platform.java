@@ -122,7 +122,6 @@ public final class Platform {
 			//?} else {
 			/*material.shade(),
 			*///?}
-			material.lightEmission()
-		);
+			material.lightEmission());
 	}
 }

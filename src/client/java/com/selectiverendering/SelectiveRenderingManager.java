@@ -29,19 +29,11 @@ public final class SelectiveRenderingManager {
 	public static final int DEFAULT_TRANSPARENCY = 50;
 	public static final String DEFAULT_WAND = "minecraft:breeze_rod";
 	public static final boolean DEFAULT_FULL_BRIGHT = true;
-	public static final boolean DEFAULT_BUILD_HIDDEN_MESH = false;
 
 	/** 按范围和名单条件决定淡化对象；枚举顺序也是界面和滚轮的切换顺序。 */
 	public enum Mode implements IConfigOptionListEntry {
-		OFF("off"),
-		REGION_INSIDE_LISTED("region_inside_listed"),
-		REGION_INSIDE_UNLISTED("region_inside_unlisted"),
-		REGION_INSIDE("region_inside"),
-		REGION_OUTSIDE_LISTED("region_outside_listed"),
-		REGION_OUTSIDE_UNLISTED("region_outside_unlisted"),
-		REGION_OUTSIDE("region_outside"),
-		BLACKLIST("blacklist"),
-		WHITELIST("whitelist");
+		OFF("off"), REGION_INSIDE_LISTED("region_inside_listed"), REGION_INSIDE_UNLISTED("region_inside_unlisted"), REGION_INSIDE("region_inside"), REGION_OUTSIDE_LISTED(
+			"region_outside_listed"), REGION_OUTSIDE_UNLISTED("region_outside_unlisted"), REGION_OUTSIDE("region_outside"), BLACKLIST("blacklist"), WHITELIST("whitelist");
 
 		private final String key;
 
@@ -118,8 +110,7 @@ public final class SelectiveRenderingManager {
 
 	/** 记录器的名单过滤方式，独立于渲染名单。 */
 	public enum RecordMode implements IConfigOptionListEntry {
-		LISTED("record_listed"),
-		UNLISTED("record_unlisted");
+		LISTED("record_listed"), UNLISTED("record_unlisted");
 
 		private final String key;
 
@@ -217,6 +208,8 @@ public final class SelectiveRenderingManager {
 
 	public static final boolean DEFAULT_PASS_THROUGH = true;
 
+	public static final boolean DEFAULT_PASS_THROUGH_ENTITIES = true;
+
 	// 可变状态须持有 LOCK 读写，渲染侧读取 config 快照。
 
 	private static Mode mode = DEFAULT_MODE;
@@ -226,8 +219,8 @@ public final class SelectiveRenderingManager {
 	private static boolean invert = DEFAULT_INVERT;
 	private static String wand = DEFAULT_WAND;
 	private static boolean fullBright = DEFAULT_FULL_BRIGHT;
-	private static volatile boolean buildHiddenMesh = DEFAULT_BUILD_HIDDEN_MESH;
 	private static boolean passThrough = DEFAULT_PASS_THROUGH;
+	private static boolean passThroughEntities = DEFAULT_PASS_THROUGH_ENTITIES;
 	public static BlockPos corner1;
 	public static BlockPos corner2;
 	private static AABB region;
@@ -241,6 +234,13 @@ public final class SelectiveRenderingManager {
 
 	/** 当前选中的角点，-1 表示未选中；仅影响编辑界面。 */
 	public static volatile int selectedCorner = -1;
+
+	/**
+	 * 两个角点围出的整个框被选中。
+	 * 选中目标三选一：某个角点（selectedCorner）、整个框（本字段）、某个选区（selectedRegionId），
+	 * 由 {@link com.selectiverendering.region.RegionEditor} 的选择方法保证互斥。不保存。
+	 */
+	public static volatile boolean selectionSelected = false;
 
 	/** 魔杖中键选中的选区，不保存。 */
 	public static volatile java.util.UUID selectedRegionId;
@@ -264,13 +264,14 @@ public final class SelectiveRenderingManager {
 			invert = config.invert;
 			wand = config.wand == null || config.wand.isBlank() ? DEFAULT_WAND : config.wand.trim();
 			fullBright = config.fullBright;
-			buildHiddenMesh = config.buildHiddenMesh;
 			passThrough = config.passThrough;
+			passThroughEntities = config.passThroughEntities;
 
 			setRules(config.rules);
 
 			corner1 = toBlockPos(config.regionPos1);
 			corner2 = toBlockPos(config.regionPos2);
+			selectionSelected = false;
 			selectedCorner = corner2 != null ? 1 : corner1 != null ? 0 : -1;
 			updateRegion();
 
@@ -343,8 +344,8 @@ public final class SelectiveRenderingManager {
 		Log.debug("[state] transparency {}%", clamped);
 
 		// 两端都是半透明时只有透明度数值变了，常驻缓冲在绘制时取最新透明度，不用重建区块。
-		int ceiling = buildHiddenMesh ? MAX_TRANSPARENCY + 1 : MAX_TRANSPARENCY;
-		boolean partial = previous > 0 && previous < ceiling && clamped > 0 && clamped < ceiling;
+		// 完全隐藏（MAX）不建网格，进出这个状态都要重建。
+		boolean partial = previous > 0 && previous < MAX_TRANSPARENCY && clamped > 0 && clamped < MAX_TRANSPARENCY;
 		if (partial && RetainedTerrain.alphaFollowsDraw()) {
 			return;
 		}
@@ -391,8 +392,7 @@ public final class SelectiveRenderingManager {
 			Math.min(corner1.getZ(), corner2.getZ()),
 			Math.max(corner1.getX(), corner2.getX()) + 1,
 			Math.max(corner1.getY(), corner2.getY()) + 1,
-			Math.max(corner1.getZ(), corner2.getZ()) + 1
-		);
+			Math.max(corner1.getZ(), corner2.getZ()) + 1);
 	}
 
 	public static boolean addRule(String source) {
@@ -595,6 +595,17 @@ public final class SelectiveRenderingManager {
 		return current.passThrough() && current.mode() != Mode.OFF && !SelectiveRendering.isWandHeld();
 	}
 
+	/** 返回保存的穿透实体偏好。 */
+	public static boolean isPassThroughEntities() {
+		return config.passThroughEntities();
+	}
+
+	/** 穿透实体是否生效：穿透交互开着才算，和方块同一套门控。 */
+	public static boolean isPassThroughEntitiesActive() {
+		RenderConfig current = config;
+		return current.passThroughEntities() && current.passThrough() && current.mode() != Mode.OFF && !SelectiveRendering.isWandHeld();
+	}
+
 	public static void setPassThrough(boolean value) {
 		synchronized (LOCK) {
 			if (value == passThrough) {
@@ -606,6 +617,19 @@ public final class SelectiveRenderingManager {
 		}
 
 		Log.debug("[state] pass through {}", value);
+	}
+
+	public static void setPassThroughEntities(boolean value) {
+		synchronized (LOCK) {
+			if (value == passThroughEntities) {
+				return;
+			}
+
+			passThroughEntities = value;
+			commit();
+		}
+
+		Log.debug("[state] pass through entities {}", value);
 	}
 
 	/** 按记录名单和过滤模式判断是否记录；空名单表示不过滤。 */
@@ -648,24 +672,6 @@ public final class SelectiveRenderingManager {
 		}
 	}
 
-	/** 完全隐藏时是否仍然构建网格（只是不绘制），这样隐藏和半透明之间切换不用重建区块。 */
-	public static boolean isBuildHiddenMesh() {
-		return buildHiddenMesh;
-	}
-
-	public static void setBuildHiddenMesh(boolean value) {
-		if (value == buildHiddenMesh) {
-			return;
-		}
-
-		synchronized (LOCK) {
-			buildHiddenMesh = value;
-			persist();
-		}
-
-		RebuildScheduler.rebuildChunks();
-	}
-
 	public static boolean isFullBright() {
 		return config.fullBright();
 	}
@@ -701,8 +707,8 @@ public final class SelectiveRenderingManager {
 
 	private static int[] toArray(Area area) {
 		return new int[] {
-			area.min().getX(), area.min().getY(), area.min().getZ(),
-			area.max().getX(), area.max().getY(), area.max().getZ()
+				area.min().getX(), area.min().getY(), area.min().getZ(),
+				area.max().getX(), area.max().getY(), area.max().getZ()
 		};
 	}
 
@@ -716,7 +722,7 @@ public final class SelectiveRenderingManager {
 		entry.rules = new ArrayList<>(region.options().ruleSources());
 		entry.entityTypes = new ArrayList<>(region.options().entityTypes());
 		entry.particleTypes = new ArrayList<>(region.options().particleTypes());
-		entry.alphaOverride = region.options().alphaOverride();
+		entry.alphaOverride = region.options().transparencyOverride();
 		entry.offsetX = region.options().offsetX();
 		entry.offsetY = region.options().offsetY();
 		entry.offsetZ = region.options().offsetZ();
@@ -752,15 +758,15 @@ public final class SelectiveRenderingManager {
 			java.util.UUID.randomUUID(),
 			entry.color == null ? Region.randomColor() : entry.color,
 			areas,
-			new RegionOptions(entry.blocks, entry.entities, entry.particles, entry.rules, entry.entityTypes, entry.particleTypes, entry.alphaOverride, entry.offsetX, entry.offsetY, entry.offsetZ)
-		);
+			new RegionOptions(entry.blocks, entry.entities, entry.particles, entry.rules, entry.entityTypes, entry.particleTypes, entry.alphaOverride, entry.offsetX, entry.offsetY, entry.offsetZ));
 	}
 
 	private static Area toArea(int[] values) {
-		return values == null || values.length != 6 ? null : new Area(
-			new BlockPos(values[0], values[1], values[2]),
-			new BlockPos(values[3], values[4], values[5])
-		);
+		return values == null || values.length != 6
+			? null
+			: new Area(
+				new BlockPos(values[0], values[1], values[2]),
+				new BlockPos(values[3], values[4], values[5]));
 	}
 
 	public static List<Preset> presets() {
@@ -847,6 +853,7 @@ public final class SelectiveRenderingManager {
 		next.wand = wand;
 		next.fullBright = fullBright;
 		next.passThrough = passThrough;
+		next.passThroughEntities = passThroughEntities;
 		next.corner1 = corner1;
 		next.corner2 = corner2;
 		next.region = region;
@@ -869,8 +876,8 @@ public final class SelectiveRenderingManager {
 		config.invert = invert;
 		config.wand = wand;
 		config.fullBright = fullBright;
-		config.buildHiddenMesh = buildHiddenMesh;
 		config.passThrough = passThrough;
+		config.passThroughEntities = passThroughEntities;
 		config.rules = List.copyOf(RULE_SOURCES);
 		config.recorded = List.copyOf(RECORD_SOURCES);
 		config.regionPos1 = toArray(corner1);

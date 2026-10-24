@@ -2,6 +2,8 @@ package com.selectiverendering.config.suggest;
 
 import java.util.List;
 
+import net.minecraft.network.chat.MutableComponent;
+
 import fi.dy.masa.malilib.config.IConfigBase;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiConfigsBase.ConfigOptionWrapper;
@@ -15,8 +17,8 @@ import fi.dy.masa.malilib.util.GuiUtils;
 /** 带补全的名单配置项的一行 */
 public final class WidgetSuggestingList extends WidgetConfigOption {
 	public WidgetSuggestingList(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 
@@ -29,7 +31,16 @@ public final class WidgetSuggestingList extends WidgetConfigOption {
 		y += 1;
 
 		this.addLabel(x, y + 6, labelWidth, 8, 0xFFFFFFFF, list.getConfigGuiDisplayName());
-		this.addConfigComment(x, y + 4, labelWidth, 12, list.getCommentComponent());
+
+		// 没人调过 setCommentComponent，恒为 null；回退到 .comment.<name>，跟基类 WidgetConfigOption 一致。
+		String text = list.getComment();
+		MutableComponent comment = list.getCommentComponent();
+
+		if (comment != null) {
+			this.addConfigComment(x, y + 4, labelWidth, 12, comment);
+		} else if (text != null && !text.isEmpty()) {
+			this.addConfigComment(x, y + 4, labelWidth, 12, text);
+		}
 
 		int buttonX = x + labelWidth + 10;
 
@@ -39,8 +50,7 @@ public final class WidgetSuggestingList extends WidgetConfigOption {
 
 			if (dialogs != null) {
 				dialogs.openDialog(editor);
-			}
-			else {
+			} else {
 				GuiBase.openGui(editor);
 			}
 		});

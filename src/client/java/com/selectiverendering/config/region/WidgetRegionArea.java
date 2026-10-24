@@ -20,8 +20,8 @@ public final class WidgetRegionArea extends WidgetConfigOption {
 	private static final int GAP = 6;
 
 	public WidgetRegionArea(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 

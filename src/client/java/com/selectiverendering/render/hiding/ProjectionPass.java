@@ -30,9 +30,11 @@ public final class ProjectionPass {
 
 	private ProjectionPass() {
 	}
+
 	public static boolean active() {
 		return active;
 	}
+
 	public static ProjectionAreas.Active particleArea() {
 		return particleArea;
 	}
@@ -86,8 +88,7 @@ public final class ProjectionPass {
 						state.x + area.offsetX() - cameraPos.x,
 						state.y + area.offsetY() - cameraPos.y,
 						state.z + area.offsetZ() - cameraPos.z,
-						poseStack, collector
-					);
+						poseStack, collector);
 				}
 
 				int minChunkX = area.area().min().getX() >> 4;
@@ -130,8 +131,7 @@ public final class ProjectionPass {
 								poseStack.translate(
 									blockPos.getX() + area.offsetX() - cameraPos.x,
 									blockPos.getY() + area.offsetY() - cameraPos.y,
-									blockPos.getZ() + area.offsetZ() - cameraPos.z
-								);
+									blockPos.getZ() + area.offsetZ() - cameraPos.z);
 								blockEntities.submit(state, poseStack, collector, camera);
 								poseStack.popPose();
 							}
@@ -139,8 +139,7 @@ public final class ProjectionPass {
 					}
 				}
 			}
-		}
-		finally {
+		} finally {
 			active = false;
 		}
 	}

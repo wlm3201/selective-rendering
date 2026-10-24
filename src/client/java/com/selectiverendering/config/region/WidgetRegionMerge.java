@@ -23,8 +23,8 @@ public final class WidgetRegionMerge extends WidgetConfigOption {
 	private RegionDropdown dropdown;
 
 	public WidgetRegionMerge(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 
@@ -53,7 +53,8 @@ public final class WidgetRegionMerge extends WidgetConfigOption {
 		if (others.isEmpty()) {
 			ButtonGeneric none = new ButtonGeneric(pickX, y, configWidth, 20, ModConfigs.text("region_merge_none"));
 			none.setEnabled(false);
-			this.addButton(none, (button, mouseButton) -> { });
+			this.addButton(none, (button, mouseButton) -> {
+			});
 			return;
 		}
 

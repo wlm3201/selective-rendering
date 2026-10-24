@@ -33,7 +33,7 @@ import java.util.Map.Entry;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 *///?}
-//? if >=26.3 {
+	//? if >=26.3 {
 import net.minecraft.client.renderer.StagedVertexBuffer;
 //?}
 //? if >=26.2 {
@@ -75,7 +75,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 public final class RetainedTerrain {
-	private static final int REBUILD_QUAD_BUDGET = 4096;
+	// 开着光影时顶点只能在渲染线程同步构建，预算太小会让大片区段"迟迟不渲染"。
+	private static final int REBUILD_QUAD_BUDGET = 16384;
 	// 小的变化（比如活塞推动一个方块）在本帧内同步完成：重算光照、建缓冲、排序，不让它经过后台线程多帧才出现。
 	private static final int FAST_QUADS = 3000;
 	private static final int SYNC_SORT_BUDGET = 16384;
@@ -84,9 +85,9 @@ public final class RetainedTerrain {
 	// 相机移动多远（平方）后需要重排。
 	private static final float SORT_MOVE_SQUARED = 0.25F;
 
-	// 每帧最多上传的新四边形数、最多落实的重排结果数。
-	private static final int UPLOAD_QUAD_BUDGET = 65536;
-	private static final int SORT_UPLOAD_BUDGET = 64;
+	// 每帧最多上传的新四边形数、最多落实的重排结果数。世界级淡化时段很多，放宽一些避免长时间缺画面。
+	private static final int UPLOAD_QUAD_BUDGET = 131072;
+	private static final int SORT_UPLOAD_BUDGET = 256;
 
 	// 不依赖渲染线程状态的构建和排序都在这里并行做，渲染线程只负责上传。
 	private static final ExecutorService POOL = Executors.newFixedThreadPool(Math.clamp(Runtime.getRuntime().availableProcessors() / 2, 2, 8), runnable -> {
@@ -97,6 +98,7 @@ public final class RetainedTerrain {
 
 	private static final List<GpuBuffer> GRAVEYARD = new ArrayList<>();
 	private static final Map<Object, Section> SECTIONS = new HashMap<>();
+
 	// 按投影自己的光照重算过的四边形；源四边形或光照场变了才重算。
 	private static final class Lit {
 		// quads 是按 source 和 fieldVersion 算出来的结果，期间的新结果在 job 里算，算完才替换，所以不会有空窗。
@@ -169,7 +171,7 @@ public final class RetainedTerrain {
 		OVERRIDES.clear();
 
 		for (com.selectiverendering.region.Region region : SelectiveRenderingManager.config().regions()) {
-			OVERRIDES.put(region.id(), region.options().alphaOverride());
+			OVERRIDES.put(region.id(), region.options().overrideAlpha());
 		}
 	}
 
@@ -220,8 +222,7 @@ public final class RetainedTerrain {
 		if (old != null) {
 			if (old.ready()) {
 				next.prior = old;
-			}
-			else {
+			} else {
 				next.prior = old.prior;
 				old.prior = null;
 				retire(old);
@@ -249,8 +250,12 @@ public final class RetainedTerrain {
 	private record Frame(List<Placed> placed, Matrix4f view, boolean shaders) {
 	}
 
+	/**
+	 * 改透明度是否能靠"绘制时取最新值"生效，不用重建区块。
+	 * 只有走常驻管线（截流）时才成立；烘焙进区块网格的 alpha 是编译期写死的，改数值必须重建。
+	 */
 	public static boolean alphaFollowsDraw() {
-		return true;
+		return TerrainTranslucency.captureWanted();
 	}
 
 	// 不透明和镂空的方块：不走半透明混合，光影里才能像普通方块一样和天空、地形正确合成。
@@ -280,8 +285,7 @@ public final class RetainedTerrain {
 		try {
 			VertexFormat format = renderType(false).format();
 			PENDING.put(section, new Pending(quads, CompletableFuture.completedFuture(buildData(quads, format))));
-		}
-		catch (Exception exception) {
+		} catch (Exception exception) {
 			Log.error("[terrain] prebuild failed", exception);
 		}
 	}
@@ -295,11 +299,14 @@ public final class RetainedTerrain {
 		GRAVEYARD.forEach(GpuBuffer::close);
 		GRAVEYARD.clear();
 
-		// 光影开关会改变使用的管线和顶点格式，已建好的缓冲都要丢掉；截流的数据和光影无关，保留。
+		// 光影开关会同时切换走哪条管线（见 TerrainTranslucency.captureWanted）：
+		// 开光影要把淡化地形截流到常驻管线，关掉则烘焙进区块网格。已编好的区段还是旧做法，
+		// 必须全部重新编译一次，否则"网格里的淡化方块"和"常驻缓冲里的同一批方块"会同时出现。
 		boolean shaders = ShaderPackState.active();
 		if (shaders != lastShaders) {
-			releaseAll();
 			lastShaders = shaders;
+			RebuildScheduler.rebuildChunks();
+			return;
 		}
 
 		if (level != lastLevel) {
@@ -308,6 +315,19 @@ public final class RetainedTerrain {
 			ProjectionLight.clear();
 			LIT.clear();
 			lastLevel = level;
+		}
+
+		// 关掉之后没有方块需要淡化：截流下来的旧缓冲必须立刻丢掉。
+		// 否则它们会一直按旧透明度参与遍历、排序和绘制，表现为"关掉也回不来，只能重进存档"。
+		if (SelectiveRenderingManager.getMode() == SelectiveRenderingManager.Mode.OFF) {
+			if (!SECTIONS.isEmpty() || !PENDING.isEmpty() || !LIT.isEmpty()) {
+				releaseAll();
+				TerrainTranslucency.clear();
+				ProjectionLight.clear();
+				LIT.clear();
+			}
+
+			return;
 		}
 
 		Map<Long, List<TerrainTranslucency.Quad>> sections = TerrainTranslucency.sections();
@@ -384,8 +404,7 @@ public final class RetainedTerrain {
 					lit.quads = lit.job.get();
 					lit.source = lit.jobSource;
 					lit.fieldVersion = lit.jobVersion;
-				}
-				catch (Exception exception) {
+				} catch (Exception exception) {
 					Log.error("[projection] relight failed", exception);
 				}
 
@@ -403,7 +422,7 @@ public final class RetainedTerrain {
 				List<TerrainTranslucency.Quad> previous = lit.quads;
 				boolean sameSource = lit.source == source;
 
-                lit.jobSource = source;
+				lit.jobSource = source;
 				lit.jobVersion = usedField.version;
 				lit.job = POOL.submit(() -> {
 					List<TerrainTranslucency.Quad> relit = ProjectionLight.relight(source, section.minBlockX(), section.minBlockY(), section.minBlockZ(), area.area(), usedField);
@@ -467,8 +486,7 @@ public final class RetainedTerrain {
 						built = rebuilt;
 						budget -= quads.size();
 					}
-				}
-				else {
+				} else {
 					Pending pending = PENDING.get(source.key());
 					if (pending == null || pending.source() != quads) {
 						if (pending != null) {
@@ -488,8 +506,7 @@ public final class RetainedTerrain {
 							replace(source.key(), built, uploaded);
 							built = uploaded;
 							uploadBudget -= quads.size();
-						}
-						catch (Exception exception) {
+						} catch (Exception exception) {
 							Log.error("[terrain] build failed", exception);
 						}
 					}
@@ -511,8 +528,7 @@ public final class RetainedTerrain {
 				if (built.ready()) {
 					retire(built.prior);
 					built.prior = null;
-				}
-				else {
+				} else {
 					drawn = built.prior;
 				}
 			}
@@ -540,8 +556,7 @@ public final class RetainedTerrain {
 					if (piece.sortJob == null && piece.indexBuffer == null && piece.indexCount / 6 <= FAST_QUADS && syncSortBudget > 0) {
 						syncSortBudget -= piece.indexCount / 6;
 						sortNow(piece, localX, localY, localZ);
-					}
-					else if (piece.sortJob == null && (piece.indexBuffer == null || moveX * moveX + moveY * moveY + moveZ * moveZ > SORT_MOVE_SQUARED)) {
+					} else if (piece.sortJob == null && (piece.indexBuffer == null || moveX * moveX + moveY * moveY + moveZ * moveZ > SORT_MOVE_SQUARED)) {
 						startSort(piece, localX, localY, localZ);
 					}
 				}
@@ -784,8 +799,7 @@ public final class RetainedTerrain {
 			for (int index : pattern) {
 				if (wide) {
 					data.putInt(index);
-				}
-				else {
+				} else {
 					data.putShort((short) index);
 				}
 			}
@@ -816,16 +830,14 @@ public final class RetainedTerrain {
 		ByteBuffer data;
 		try {
 			data = job.get();
-		}
-		catch (Exception exception) {
+		} catch (Exception exception) {
 			return;
 		}
 
 		if (piece.indexBuffer == null) {
 			piece.indexType = piece.indexCount / 6 * 4 > 65535 ? IndexType.INT : IndexType.SHORT;
 			piece.indexBuffer = RenderSystem.getDevice().createBuffer(() -> "selective_rendering translucent terrain indices", GpuBuffer.USAGE_INDEX | GpuBuffer.USAGE_COPY_DST, data);
-		}
-		else {
+		} else {
 			RenderSystem.getDevice().createCommandEncoder().writeToBuffer(piece.indexBuffer.slice(), data);
 		}
 

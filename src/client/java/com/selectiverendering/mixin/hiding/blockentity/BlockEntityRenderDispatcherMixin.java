@@ -17,21 +17,14 @@ import org.spongepowered.asm.mixin.injection.At;
 /** 按所在位置的透明度隐藏方块实体，或将其提交到半透明管线。 */
 @Mixin(BlockEntityRenderDispatcher.class)
 public class BlockEntityRenderDispatcherMixin {
-	@WrapOperation(
-		method = "submit",
-		at = @At(
-			value = "INVOKE",
-			target = "Lnet/minecraft/client/renderer/blockentity/BlockEntityRenderer;submit(Lnet/minecraft/client/renderer/blockentity/state/BlockEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V"
-		)
-	)
+	@WrapOperation(method = "submit", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/blockentity/BlockEntityRenderer;submit(Lnet/minecraft/client/renderer/blockentity/state/BlockEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V"))
 	private <S extends BlockEntityRenderState> void selectiveRendering$submit(
 		BlockEntityRenderer<?, S> renderer,
 		S renderState,
 		PoseStack poseStack,
 		SubmitNodeCollector collector,
 		CameraRenderState cameraRenderState,
-		Operation<Void> original
-	) {
+		Operation<Void> original) {
 		if (ProjectionPass.active()) {
 			original.call(renderer, renderState, poseStack, collector, cameraRenderState);
 			return;

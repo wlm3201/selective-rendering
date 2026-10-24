@@ -58,23 +58,21 @@ public class DefaultFluidRendererMixin {
 	private BlockGetter selectiveRendering$level;
 
 	@Inject(method = "render", at = @At("HEAD"), cancellable = true)
-	private void selectiveRendering$onRender(LevelSlice level, BlockState state, FluidState fluidState, BlockPos pos, BlockPos offset, TranslucentGeometryCollector collector, ChunkModelBuilder meshBuilder, Material material, ColorProvider<FluidState> colorProvider, FluidModel model, CallbackInfo ci) {
+	private void selectiveRendering$onRender(LevelSlice level, BlockState state, FluidState fluidState, BlockPos pos, BlockPos offset, TranslucentGeometryCollector collector,
+		ChunkModelBuilder meshBuilder, Material material, ColorProvider<FluidState> colorProvider, FluidModel model, CallbackInfo ci) {
 		int alpha = AlphaGetter.getFluidAlpha(state, pos);
 		selectiveRendering$alpha = alpha;
 		selectiveRendering$pos = pos;
 		selectiveRendering$level = level;
 		selectiveRendering$forcedFaces = 0;
 
-		if (alpha == 0 && !(TerrainTranslucency.capturing() && SelectiveRenderingManager.isBuildHiddenMesh()) && !TerrainTranslucency.projecting(pos)) {
+		if (alpha == 0 && !TerrainTranslucency.projecting(pos)) {
 			ci.cancel();
 			return;
 		}
 	}
 
-	@ModifyReturnValue(
-		method = "isFullBlockFluidSideVisible(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;Lnet/minecraft/world/level/material/FluidState;)Z",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "isFullBlockFluidSideVisible(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;Lnet/minecraft/world/level/material/FluidState;)Z", at = @At("RETURN"))
 	private boolean selectiveRendering$onIsFullBlockFluidSideVisible(boolean original, BlockGetter view, BlockPos selfPos, Direction facing, FluidState fluid) {
 		if (original || SelectiveRenderingManager.getMode() == SelectiveRenderingManager.Mode.OFF) {
 			return original;
@@ -90,26 +88,17 @@ public class DefaultFluidRendererMixin {
 		return facing.getAxis().isHorizontal() || sameFluid;
 	}
 
-	@ModifyReturnValue(
-		method = "isFullBlockFluidSideVisible(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;Lnet/minecraft/world/level/material/FluidState;)Z",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "isFullBlockFluidSideVisible(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;Lnet/minecraft/world/level/material/FluidState;)Z", at = @At("RETURN"))
 	private boolean selectiveRendering$keepProjectedSide(boolean original, BlockGetter view, BlockPos selfPos, Direction facing, FluidState fluid) {
 		return this.selectiveRendering$keepProjected(original, selfPos, facing);
 	}
 
-	@ModifyReturnValue(
-		method = "isFluidSideExposed(Lnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;F)Z",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "isFluidSideExposed(Lnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;F)Z", at = @At("RETURN"))
 	private boolean selectiveRendering$keepProjectedExposed(boolean original, BlockAndTintGetter view, BlockState state, BlockPos selfPos, Direction facing, float height) {
 		return this.selectiveRendering$keepProjected(original, selfPos, facing);
 	}
 
-	@ModifyReturnValue(
-		method = "isFluidSideExposed(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/Direction;F)Z",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "isFluidSideExposed(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/Direction;F)Z", at = @At("RETURN"))
 	private boolean selectiveRendering$keepProjectedExposedState(boolean original, BlockState ownState, BlockState neighbourState, Direction facing, float height) {
 		return this.selectiveRendering$keepProjected(original, selectiveRendering$pos, facing);
 	}
@@ -125,10 +114,7 @@ public class DefaultFluidRendererMixin {
 		return true;
 	}
 
-	@ModifyReturnValue(
-		method = "getUpFaceExposureByNeighbors(Lnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/material/FluidState;)I",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "getUpFaceExposureByNeighbors(Lnet/minecraft/client/renderer/block/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/material/FluidState;)I", at = @At("RETURN"))
 	private int selectiveRendering$onGetUpFaceExposureByNeighbors(int original, BlockAndTintGetter level, BlockPos origin, FluidState fluidState) {
 		final int bothExposed = 0b11;
 
@@ -149,10 +135,7 @@ public class DefaultFluidRendererMixin {
 		return AlphaGetter.isHidden(aboveState, above) ? bothExposed : original;
 	}
 
-	@ModifyReturnValue(
-		method = "isFluidSideExposed(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/Direction;F)Z",
-		at = @At("RETURN")
-	)
+	@ModifyReturnValue(method = "isFluidSideExposed(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/core/Direction;F)Z", at = @At("RETURN"))
 	private boolean selectiveRendering$onIsFluidSideExposed(boolean original, BlockState ownState, BlockState neighbourState, Direction facing, float height) {
 		if (original || facing.getAxis().isVertical()) {
 			return original;
@@ -178,12 +161,9 @@ public class DefaultFluidRendererMixin {
 	}
 
 	/** 光影包下半透明流体和地形一样没法靠顶点 alpha：截下四边形，改由常驻缓冲绘制。 */
-	@Inject(
-		method = "writeQuad",
-		at = @At(value = "INVOKE", target = "Lnet/caffeinemc/mods/sodium/client/model/quad/ModelQuadView;getSprite()Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;"),
-		cancellable = true
-	)
-	private void selectiveRendering$captureQuad(ChunkModelBuilder builder, TranslucentGeometryCollector collector, Material material, BlockPos pos, ModelQuadView quad, ModelQuadFacing facing, boolean shade, CallbackInfo ci) {
+	@Inject(method = "writeQuad", at = @At(value = "INVOKE", target = "Lnet/caffeinemc/mods/sodium/client/model/quad/ModelQuadView;getSprite()Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;"), cancellable = true)
+	private void selectiveRendering$captureQuad(ChunkModelBuilder builder, TranslucentGeometryCollector collector, Material material, BlockPos pos, ModelQuadView quad, ModelQuadFacing facing,
+		boolean shade, CallbackInfo ci) {
 		BlockPos world = selectiveRendering$pos;
 		if (world != null && TerrainTranslucency.projecting(world)) {
 			int packed = quad.getFaceNormal();
@@ -201,13 +181,13 @@ public class DefaultFluidRendererMixin {
 		}
 
 		int alpha = selectiveRendering$alpha;
-		if (alpha == 0 && !(TerrainTranslucency.capturing() && SelectiveRenderingManager.isBuildHiddenMesh())) {
+		if (alpha == 0) {
 			// 被隐藏的流体只给投影用，不进真实网格。
 			ci.cancel();
 			return;
 		}
 
-		if (alpha < 0 || alpha >= 255 || !TerrainTranslucency.capturing() || (alpha == 0 && !SelectiveRenderingManager.isBuildHiddenMesh())) {
+		if (alpha < 0 || alpha >= 255 || !TerrainTranslucency.capturing()) {
 			return;
 		}
 
@@ -232,7 +212,10 @@ public class DefaultFluidRendererMixin {
 			uvs[i * 2] = vertex.u;
 			uvs[i * 2 + 1] = vertex.v;
 
-			float brightness = flatShade ? TerrainTranslucency.directionalShade(TerrainTranslucency.directionOf(NormI8.unpackX(quad.getFaceNormal()), NormI8.unpackY(quad.getFaceNormal()), NormI8.unpackZ(quad.getFaceNormal()))) : Math.min(1.0F, vertex.ao);
+			float brightness = flatShade
+				? TerrainTranslucency
+					.directionalShade(TerrainTranslucency.directionOf(NormI8.unpackX(quad.getFaceNormal()), NormI8.unpackY(quad.getFaceNormal()), NormI8.unpackZ(quad.getFaceNormal())))
+				: Math.min(1.0F, vertex.ao);
 			int abgr = vertex.color;
 			int red = (int) ((abgr & 0xFF) * brightness);
 			int green = (int) (((abgr >> 8) & 0xFF) * brightness);
@@ -243,11 +226,13 @@ public class DefaultFluidRendererMixin {
 		}
 
 		int packedNormal = quad.getFaceNormal();
-		return new TerrainTranslucency.Quad(positions, uvs, colors, lights, NormI8.unpackX(packedNormal), NormI8.unpackY(packedNormal), NormI8.unpackZ(packedNormal), alpha, capture && alpha == SelectiveRenderingManager.config().alpha(), translucent, null, false);
+		return new TerrainTranslucency.Quad(positions, uvs, colors, lights, NormI8.unpackX(packedNormal), NormI8.unpackY(packedNormal), NormI8.unpackZ(packedNormal), alpha,
+			capture && alpha == SelectiveRenderingManager.config().alpha(), translucent, null, false);
 	}
 
 	@Inject(method = "writeQuad", at = @At("HEAD"))
-	private void selectiveRendering$tintQuad(ChunkModelBuilder builder, TranslucentGeometryCollector collector, Material material, BlockPos pos, ModelQuadView quad, ModelQuadFacing facing, boolean shade, CallbackInfo ci) {
+	private void selectiveRendering$tintQuad(ChunkModelBuilder builder, TranslucentGeometryCollector collector, Material material, BlockPos pos, ModelQuadView quad, ModelQuadFacing facing,
+		boolean shade, CallbackInfo ci) {
 		int alpha = selectiveRendering$alpha;
 		if (alpha <= 0 || alpha >= 255) {
 			return;

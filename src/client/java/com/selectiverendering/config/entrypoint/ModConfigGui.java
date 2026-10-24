@@ -38,6 +38,13 @@ public final class ModConfigGui extends GuiConfigsBase {
 	}
 
 	@Override
+	protected void buildConfigSwitcher() {
+		// 先确保登记表里是正式名字：二级界面（选区设置）会让 MaLiLib 按 mod id 拆词重新登记一次。
+		ModConfigs.registerConfigScreen();
+		super.buildConfigSwitcher();
+	}
+
+	@Override
 	public void initGui() {
 		super.initGui();
 
@@ -76,32 +83,32 @@ public final class ModConfigGui extends GuiConfigsBase {
 	@Override
 	protected WidgetListConfigOptions createListWidget(int listX, int listY) {
 		return new WidgetListConfigOptions(listX, listY,
-				this.getBrowserWidth(), this.getBrowserHeight(), this.getConfigWidth(), 0.f, this.useKeybindSearch(), this) {
+			this.getBrowserWidth(), this.getBrowserHeight(), this.getConfigWidth(), 0.f, this.useKeybindSearch(), this) {
 			@Override
 			protected WidgetConfigOption createListEntryWidget(int x, int y, int listIndex, boolean isOdd, ConfigOptionWrapper entry) {
 				if (entry.getType() == ConfigOptionWrapper.Type.LABEL && presetsHeading().equals(entry.getLabel())) {
 					return new WidgetPresetHeader(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof SuggestingStringList) {
 					return new WidgetSuggestingList(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof RegionRowConfig) {
 					return new WidgetRegionRow(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof PresetRowConfig) {
 					return new WidgetPresetRow(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				if (entry.getConfig() instanceof ModConfigs.ModeConfig) {
 					return new WidgetModeRow(x, y, this.browserEntryWidth, this.browserEntryHeight,
-							this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
+						this.maxLabelWidth, this.configWidth, entry, listIndex, this.parent, this);
 				}
 
 				return super.createListEntryWidget(x, y, listIndex, isOdd, entry);

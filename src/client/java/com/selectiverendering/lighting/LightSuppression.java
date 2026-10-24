@@ -13,25 +13,33 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
-import net.minecraft.world.level.lighting.LevelLightEngine;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
+import java.util.concurrent.atomic.AtomicLong;
 
-/** 在客户端光照和 AO 计算中将隐藏方块视为空气，并调度受影响区块的光照重算。 */
+/**
+ * 在客户端光照和 AO 计算中将隐藏方块视为空气，并调度受影响区块的光照重算。
+ *
+ * <p>重算只覆盖"选区（含刚被移除的选区）涉及的区块"，按帧分摊，随时可以被新的设置变化取消。
+ * 名单类模式（BLACKLIST / WHITELIST）隐藏的方块遍布全世界，不为它重算光照：否则待重算的区块会
+ * 随着区块加载无限增长，每帧的光照更新会被拖垮（整屏 FPS 掉到几十且关掉也回不来）。
+ */
 public final class LightSuppression {
-	private static final int BUDGET_PER_FLUSH = 2000;
+	/** 每帧最多提交的 {@code checkBlock} 次数。 */
+	private static final int BUDGET_PER_RUN = 1500;
+
+	/** 每帧最多访问的方块数，防止大范围空气扫描本身耗时过长。 */
+	private static final int VISIT_PER_RUN = 20000;
 
 	private static final int MARGIN = 1;
 
-	/** 全区块扫描的每帧时间预算（纳秒）及检查数量上限。 */
-	private static final long GLOBAL_TIME_BUDGET = 2_000_000L;
-	private static final int GLOBAL_CHECK_LIMIT = 6000;
+	/** 待重算区块数量的硬上限，超大选区也不会把队列撑爆。 */
+	private static final int MAX_PENDING_CHUNKS = 4096;
 
-	private static final Predicate<BlockState> LIGHT_RELEVANT = state -> state.getLightDampening() > 0 || state.getLightEmission() > 0;
+	/** 待还原的历史选区数量上限。 */
+	private static final int MAX_RETIRED_AREAS = 64;
 
 	private static final long NO_CHUNK = Long.MIN_VALUE;
 
@@ -48,16 +56,16 @@ public final class LightSuppression {
 	/** 已删除或裁剪、仍需还原光照的历史选区。 */
 	private static final List<Area> RETIRED_AREAS = new ArrayList<>();
 
-	/** 全局扫描队列：ALL 还原所有相关方块，FILTERED 仅检查当前隐藏方块。 */
-	private static final LongLinkedOpenHashSet GLOBAL_ALL = new LongLinkedOpenHashSet();
-	private static final LongLinkedOpenHashSet GLOBAL_FILTERED = new LongLinkedOpenHashSet();
+	/** 每次设置变化自增，让还在队列里的旧重算任务自己退出。 */
+	private static final AtomicLong GENERATION = new AtomicLong();
 
-	private static long globalChunk = NO_CHUNK;
-	private static boolean globalAll;
-	private static int globalIndex;
+	/** 帧序号，由 {@code runLightUpdates} 推进；一帧只做一批重算。 */
+	private static long frame;
+	private static long lastWorkFrame = -1;
 
-	/** 上次重算是否使用全局模式，用于切走后还原光照。 */
-	private static boolean lastGlobal;
+	/** 队列里是否已有一个有效的重算任务，以及它属于哪一代。 */
+	private static boolean taskQueued;
+	private static long taskGeneration = -1;
 
 	/** 跨帧扫描的区块及列游标。 */
 	private static long cursorChunk = NO_CHUNK;
@@ -65,7 +73,6 @@ public final class LightSuppression {
 
 	private LightSuppression() {
 	}
-
 
 	/** 返回光照和 AO 计算使用的状态，将隐藏方块视为空气。 */
 	public static BlockState airIfHidden(BlockState state, BlockPos pos) {
@@ -81,50 +88,29 @@ public final class LightSuppression {
 		return AlphaGetter.alphaNow(state, pos, false) >= 0 ? Blocks.AIR.defaultBlockState() : state;
 	}
 
-
-	/** 将当前及历史选区涉及的区块加入光照重算队列。 */
+	/** 设置变化后调用：重排受影响区块，并安排按帧分摊的重算。 */
 	public static void relight() {
 		synchronized (SOURCE_CACHE) {
 			SOURCE_CACHE.clear();
 		}
 
-		if (SelectiveRenderingManager.isFullBright()) {
-			return;
-		}
+		List<Area> targets = collectTargets();
 
 		ClientLevel level = Minecraft.getInstance().level;
-		if (level == null) {
+		if (level == null || targets.isEmpty()) {
+			reset();
 			return;
 		}
 
-		SelectiveRenderingManager.Mode mode = SelectiveRenderingManager.getMode();
-		boolean global = isGlobal(mode);
-
-		if (global || lastGlobal) {
-			enqueueAround(level);
-		}
-
-		lastGlobal = global;
-
-		List<Area> targets = targets();
-		if (targets.isEmpty()) {
-			return;
-		}
+		long generation = GENERATION.incrementAndGet();
 
 		synchronized (LOCK) {
-			for (Area region : targets) {
-				int minChunkX = (region.min().getX() - MARGIN) >> 4;
-				int maxChunkX = (region.max().getX() + MARGIN) >> 4;
-				int minChunkZ = (region.min().getZ() - MARGIN) >> 4;
-				int maxChunkZ = (region.max().getZ() + MARGIN) >> 4;
-
-				for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-					for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
-						enqueue(chunkX, chunkZ);
-					}
-				}
+			for (Area area : targets) {
+				enqueueArea(area);
 			}
 		}
+
+		schedule(level, generation, targets);
 	}
 
 	/** 记录已移除、仍需还原光照的选区。 */
@@ -135,73 +121,172 @@ public final class LightSuppression {
 					RETIRED_AREAS.add(region);
 				}
 			}
+
+			while (RETIRED_AREAS.size() > MAX_RETIRED_AREAS) {
+				RETIRED_AREAS.remove(0);
+			}
 		}
 	}
 
-	/** 标记收到服务端光照的区块，待数据落地后重算。 */
+	/**
+	 * 区块光照数据落地后调用，保证客户端把"隐藏方块当空气"的结果重新算一遍。
+	 * 只有与选区相交的区块才会入队；名单类模式不做重算。
+	 */
 	public static void markChunk(int chunkX, int chunkZ) {
 		SelectiveRenderingManager.Mode mode = SelectiveRenderingManager.getMode();
-		if (mode == SelectiveRenderingManager.Mode.OFF || SelectiveRenderingManager.isFullBright()) {
+		if (mode == SelectiveRenderingManager.Mode.OFF || SelectiveRenderingManager.isFullBright() || !mode.usesRegion()) {
+			return;
+		}
+
+		if (!intersectsAreas(collectAreas(), chunkX, chunkZ)) {
+			return;
+		}
+
+		ClientLevel level = Minecraft.getInstance().level;
+		if (level == null) {
 			return;
 		}
 
 		synchronized (LOCK) {
-			if (isGlobal(mode)) {
-				long packed = ChunkPos.pack(chunkX, chunkZ);
-				if (!GLOBAL_ALL.contains(packed)) {
-					GLOBAL_FILTERED.add(packed);
-				}
-			} else if (mode.usesRegion()) {
-				enqueue(chunkX, chunkZ);
-			}
+			enqueue(chunkX, chunkZ);
 		}
+
+		schedule(level, GENERATION.get(), collectAreas());
+	}
+
+	/** 丢弃所有待重算区块。切换模式、关闭或没有选区时调用，保证不会留下持续的背景开销。 */
+	public static void reset() {
+		synchronized (LOCK) {
+			PENDING.clear();
+			RETIRED_AREAS.clear();
+			cursorChunk = NO_CHUNK;
+			cursorColumn = 0;
+		}
+	}
+
+	/**
+	 * 每次 {@code runLightUpdates} 结束时调用：推进帧号。
+	 * 重算任务跑在它前面的 {@code pollLightUpdates} 里，因此一帧只会做一批。
+	 */
+	public static void endFrame() {
+		frame++;
 	}
 
 	private static boolean isGlobal(SelectiveRenderingManager.Mode mode) {
 		return mode == SelectiveRenderingManager.Mode.BLACKLIST || mode == SelectiveRenderingManager.Mode.WHITELIST;
 	}
 
-	private static void enqueueAround(ClientLevel level) {
-		Minecraft minecraft = Minecraft.getInstance();
-		if (minecraft.player == null) {
+	private static void schedule(ClientLevel level, long generation, List<Area> areas) {
+		if (level == null) {
 			return;
 		}
 
-		int radius = minecraft.options.renderDistance().get();
-		int centerX = minecraft.player.chunkPosition().x();
-		int centerZ = minecraft.player.chunkPosition().z();
-
-		List<long[]> ordered = new ArrayList<>();
-		for (int dx = -radius; dx <= radius; dx++) {
-			for (int dz = -radius; dz <= radius; dz++) {
-				ordered.add(new long[] {(long) dx * dx + (long) dz * dz, ChunkPos.pack(centerX + dx, centerZ + dz)});
-			}
-		}
-		ordered.sort((a, b) -> Long.compare(a[0], b[0]));
-
 		synchronized (LOCK) {
-			for (long[] entry : ordered) {
-				GLOBAL_ALL.add(entry[1]);
-				GLOBAL_FILTERED.remove(entry[1]);
+			if (PENDING.isEmpty()) {
+				return;
 			}
 
-			if (globalChunk != NO_CHUNK && !globalAll) {
-				globalChunk = NO_CHUNK;
+			if (taskQueued && taskGeneration == generation) {
+				// 同代的任务已经在队列里了，它自己会继续处理剩下的区块。
+				return;
+			}
+
+			taskQueued = true;
+			taskGeneration = generation;
+		}
+
+		level.queueLightUpdate(new Relight(generation, areas));
+	}
+
+	private static void finishChunk() {
+		synchronized (LOCK) {
+			PENDING.remove(cursorChunk);
+			cursorChunk = NO_CHUNK;
+			cursorColumn = 0;
+		}
+	}
+
+	private static void enqueue(int chunkX, int chunkZ) {
+		if (PENDING.size() >= MAX_PENDING_CHUNKS) {
+			return;
+		}
+
+		long packed = ChunkPos.pack(chunkX, chunkZ);
+		PENDING.add(packed);
+
+		if (packed == cursorChunk) {
+			// 区块再次变脏时，从首列重新扫描。
+			cursorColumn = 0;
+		}
+	}
+
+	private static void enqueueArea(Area area) {
+		int minChunkX = (area.min().getX() - MARGIN) >> 4;
+		int maxChunkX = (area.max().getX() + MARGIN) >> 4;
+		int minChunkZ = (area.min().getZ() - MARGIN) >> 4;
+		int maxChunkZ = (area.max().getZ() + MARGIN) >> 4;
+
+		for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+			for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+				enqueue(chunkX, chunkZ);
 			}
 		}
 	}
 
+	/** 当前生效的选区范围。 */
+	private static List<Area> collectAreas() {
+		List<Region> regions = SelectiveRenderingManager.blockRegions();
+		List<Area> areas = new ArrayList<>();
+
+		for (Region region : regions) {
+			areas.addAll(region.areas());
+		}
+
+		return areas;
+	}
+
+	/** 当前选区范围，并取出（清空）待还原的历史选区。 */
+	private static List<Area> collectTargets() {
+		List<Area> areas = collectAreas();
+
+		synchronized (LOCK) {
+			for (Area area : RETIRED_AREAS) {
+				if (!areas.contains(area)) {
+					areas.add(area);
+				}
+			}
+
+			RETIRED_AREAS.clear();
+		}
+
+		return areas;
+	}
+
+	private static boolean intersectsAreas(List<Area> areas, int chunkX, int chunkZ) {
+		int baseX = chunkX << 4;
+		int baseZ = chunkZ << 4;
+
+		for (Area area : areas) {
+			if (area.max().getX() + MARGIN >= baseX && area.min().getX() - MARGIN <= baseX + 15
+				&& area.max().getZ() + MARGIN >= baseZ && area.min().getZ() - MARGIN <= baseZ + 15) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	/**
 	 * 天光源头高度：从真实源头往下穿过所有"当空气后不挡光"的方块，停在第一个仍然挡光的方块上方。
-	 * 只对客户端引擎生效（调用方已核对），并且按列缓存；缓存在 {@link #relight()} 和该列
-	 * {@code checkBlock} 时失效。
+	 * 只对客户端引擎生效（调用方已核对），并且按列缓存；缓存在 {@link #relight()} 时整体失效。
+	 * 名单类模式直接沿用原版结果：那种模式下要重算的范围是全世界，代价不可接受。
 	 *
 	 * @param real 原版按真实方块算出的结果
 	 */
 	public static int lowestSourceY(LightChunk chunk, int x, int z, int real) {
 		SelectiveRenderingManager.Mode mode = SelectiveRenderingManager.getMode();
 		if (real == Integer.MIN_VALUE || mode == SelectiveRenderingManager.Mode.OFF
-			|| SelectiveRenderingManager.isFullBright() || hidesOutside(mode)) {
+			|| SelectiveRenderingManager.isFullBright() || isGlobal(mode) || hidesOutside(mode)) {
 			return real;
 		}
 
@@ -238,230 +323,170 @@ public final class LightSuppression {
 		return result;
 	}
 
-	public static void invalidateColumn(int x, int z) {
-		synchronized (SOURCE_CACHE) {
-			if (!SOURCE_CACHE.isEmpty()) {
-				SOURCE_CACHE.remove(BlockPos.asLong(x, 0, z));
-			}
-		}
-	}
-
 	private static boolean hidesOutside(SelectiveRenderingManager.Mode mode) {
 		return mode == SelectiveRenderingManager.Mode.REGION_OUTSIDE
 			|| mode == SelectiveRenderingManager.Mode.REGION_OUTSIDE_LISTED
 			|| mode == SelectiveRenderingManager.Mode.REGION_OUTSIDE_UNLISTED;
 	}
 
-	private static void enqueue(int chunkX, int chunkZ) {
-		long packed = ChunkPos.pack(chunkX, chunkZ);
-		PENDING.add(packed);
+	/** 按帧分摊的光照重算任务；设置一旦变化就自行退出，由 {@link #relight()} 安排新的一批。 */
+	private static final class Relight implements Runnable {
+		private final long generation;
+		private final List<Area> areas;
+		private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
-		if (packed == cursorChunk) {
-			// 区块再次变脏时，从首列重新扫描。
-			cursorColumn = 0;
-		}
-	}
-
-
-	/** 在客户端光照更新后，按预算处理待重算区块。 */
-	public static void flush(LevelLightEngine engine) {
-		synchronized (LOCK) {
-			if (PENDING.isEmpty() && GLOBAL_ALL.isEmpty() && GLOBAL_FILTERED.isEmpty()) {
-				return;
-			}
+		Relight(long generation, List<Area> areas) {
+			this.generation = generation;
+			this.areas = areas;
 		}
 
-		ClientLevel level = Minecraft.getInstance().level;
-		if (level == null) {
-			synchronized (LOCK) {
-				PENDING.clear();
-				GLOBAL_ALL.clear();
-				GLOBAL_FILTERED.clear();
-				cursorChunk = NO_CHUNK;
-				globalChunk = NO_CHUNK;
-			}
-			return;
-		}
-
-		if (engine != level.getLightEngine()) {
-			return;
-		}
-
-		flushGlobal(level);
-
-		List<Area> targets = targets();
-
-		synchronized (LOCK) {
-			int budget = BUDGET_PER_FLUSH;
-
-			while (budget > 0 && !PENDING.isEmpty()) {
-				if (cursorChunk == NO_CHUNK) {
-					cursorChunk = PENDING.firstLong();
-					cursorColumn = 0;
+		@Override
+		public void run() {
+			long generation = GENERATION.get();
+			if (this.generation != generation) {
+				synchronized (LOCK) {
+					taskQueued = false;
 				}
 
-				LevelChunk chunk = level.getChunkSource().getChunk(ChunkPos.getX(cursorChunk), ChunkPos.getZ(cursorChunk), false);
-				if (chunk == null || targets.isEmpty()) {
+				return;
+			}
+
+			ClientLevel level = Minecraft.getInstance().level;
+			if (level == null) {
+				reset();
+
+				synchronized (LOCK) {
+					taskQueued = false;
+				}
+
+				return;
+			}
+
+			if (lastWorkFrame == frame) {
+				// 这一帧已经做过一批了，下一帧再继续。
+				level.queueLightUpdate(this);
+				return;
+			}
+
+			if (PENDING.isEmpty()) {
+				synchronized (LOCK) {
+					taskQueued = false;
+				}
+
+				return;
+			}
+
+			lastWorkFrame = frame;
+
+			int budget = BUDGET_PER_RUN;
+			int visits = VISIT_PER_RUN;
+			boolean remaining = true;
+
+			while (budget > 0 && visits > 0) {
+				if (cursorChunk == NO_CHUNK) {
+					synchronized (LOCK) {
+						if (PENDING.isEmpty()) {
+							remaining = false;
+							break;
+						}
+
+						cursorChunk = PENDING.firstLong();
+						cursorColumn = 0;
+					}
+				}
+
+				LevelChunk chunk = level.getChunkSource()
+					.getChunk(ChunkPos.getX(cursorChunk), ChunkPos.getZ(cursorChunk), false);
+
+				if (chunk == null) {
 					finishChunk();
 					continue;
 				}
 
-				budget = scanChunk(level, chunk, targets, budget);
+				int[] used = scanChunk(level, chunk, budget, visits);
+				budget = used[0];
+				visits -= used[1];
+
 				if (cursorColumn >= 256) {
 					finishChunk();
 				}
 			}
-		}
-	}
 
-	private static void flushGlobal(ClientLevel level) {
-		long deadline = System.nanoTime() + GLOBAL_TIME_BUDGET;
-		int checks = 0;
-		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-
-		synchronized (LOCK) {
-			while (checks < GLOBAL_CHECK_LIMIT && System.nanoTime() < deadline) {
-				if (globalChunk == NO_CHUNK) {
-					if (!GLOBAL_ALL.isEmpty()) {
-						globalChunk = GLOBAL_ALL.firstLong();
-						globalAll = true;
-					} else if (!GLOBAL_FILTERED.isEmpty()) {
-						globalChunk = GLOBAL_FILTERED.firstLong();
-						globalAll = false;
-					} else {
-						return;
+			if (!remaining) {
+				synchronized (LOCK) {
+					if (PENDING.isEmpty()) {
+						taskQueued = false;
 					}
-
-					globalIndex = 0;
 				}
 
-				LevelChunk chunk = level.getChunkSource().getChunk(ChunkPos.getX(globalChunk), ChunkPos.getZ(globalChunk), false);
-				if (chunk == null) {
-					finishGlobal();
-					continue;
+				return;
+			}
+
+			level.queueLightUpdate(this);
+		}
+
+		/** 扫描区块里与选区相交的列，返回 {剩余预算, 访问方块数}。 */
+		private int[] scanChunk(ClientLevel level, LevelChunk chunk, int budget, int visits) {
+			int baseX = chunk.getPos().getMinBlockX();
+			int baseZ = chunk.getPos().getMinBlockZ();
+
+			List<Area> local = new ArrayList<>();
+			for (Area area : this.areas) {
+				if (area.max().getX() + MARGIN >= baseX && area.min().getX() - MARGIN <= baseX + 15
+					&& area.max().getZ() + MARGIN >= baseZ && area.min().getZ() - MARGIN <= baseZ + 15) {
+					local.add(area);
 				}
+			}
 
-				LevelChunkSection[] sections = chunk.getSections();
-				int total = sections.length * 4096;
-				int baseX = chunk.getPos().getMinBlockX();
-				int baseZ = chunk.getPos().getMinBlockZ();
+			if (local.isEmpty()) {
+				cursorColumn = 256;
+				return new int[] {budget, 0};
+			}
 
-				while (globalIndex < total) {
-					int sectionIndex = globalIndex >> 12;
-					LevelChunkSection section = sections[sectionIndex];
+			int used = 0;
 
-					if (section.hasOnlyAir() || !section.maybeHas(LIGHT_RELEVANT)) {
-						globalIndex = (sectionIndex + 1) << 12;
+			while (cursorColumn < 256 && budget > 0 && visits > 0) {
+				int x = baseX + (cursorColumn & 15);
+				int z = baseZ + (cursorColumn >> 4);
+				cursorColumn++;
+
+				int top = Integer.MIN_VALUE;
+				int bottom = Integer.MAX_VALUE;
+
+				for (Area area : local) {
+					if (x < area.min().getX() - MARGIN || x > area.max().getX() + MARGIN
+						|| z < area.min().getZ() - MARGIN || z > area.max().getZ() + MARGIN) {
 						continue;
 					}
 
-					int local = globalIndex & 4095;
-					globalIndex++;
-
-					int localX = local & 15;
-					int localZ = (local >> 4) & 15;
-					int localY = local >> 8;
-
-					BlockState state = section.getBlockState(localX, localY, localZ);
-					if (LIGHT_RELEVANT.test(state)) {
-						int y = (level.getSectionYFromSectionIndex(sectionIndex) << 4) + localY;
-						pos.set(baseX + localX, y, baseZ + localZ);
-
-						if (globalAll || airIfHidden(state, pos) != state) {
-							level.getLightEngine().checkBlock(pos);
-							checks++;
-						}
-					}
-
-					if ((globalIndex & 511) == 0 && (checks >= GLOBAL_CHECK_LIMIT || System.nanoTime() >= deadline)) {
-						return;
-					}
+					top = Math.max(top, area.max().getY() + 1);
+					bottom = Math.min(bottom, area.min().getY() - 1);
 				}
 
-				finishGlobal();
-			}
-		}
-	}
-
-	private static void finishGlobal() {
-		(globalAll ? GLOBAL_ALL : GLOBAL_FILTERED).remove(globalChunk);
-		globalChunk = NO_CHUNK;
-		globalIndex = 0;
-	}
-
-	private static void finishChunk() {
-		PENDING.remove(cursorChunk);
-		cursorChunk = NO_CHUNK;
-		cursorColumn = 0;
-	}
-
-	/** 扫描区块中与选区相交的列并提交光照检查，返回剩余预算。 */
-	private static int scanChunk(ClientLevel level, LevelChunk chunk, List<Area> targets, int budget) {
-		int baseX = chunk.getPos().getMinBlockX();
-		int baseZ = chunk.getPos().getMinBlockZ();
-
-		List<Area> local = new ArrayList<>();
-		for (Area region : targets) {
-			if (region.max().getX() + MARGIN >= baseX && region.min().getX() - MARGIN <= baseX + 15
-				&& region.max().getZ() + MARGIN >= baseZ && region.min().getZ() - MARGIN <= baseZ + 15) {
-				local.add(region);
-			}
-		}
-
-		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
-
-		while (cursorColumn < 256 && budget > 0) {
-			int x = baseX + (cursorColumn & 15);
-			int z = baseZ + (cursorColumn >> 4);
-			cursorColumn++;
-
-			int top = Integer.MIN_VALUE;
-			int bottom = Integer.MAX_VALUE;
-
-			for (Area region : local) {
-				if (x < region.min().getX() - MARGIN || x > region.max().getX() + MARGIN
-					|| z < region.min().getZ() - MARGIN || z > region.max().getZ() + MARGIN) {
+				if (top == Integer.MIN_VALUE) {
 					continue;
 				}
 
-				top = Math.max(top, region.max().getY() + 1);
-				bottom = Math.min(bottom, region.min().getY() - 1);
-			}
+				int source = chunk.getSkyLightSources().getLowestSourceY(x & 15, z & 15);
+				bottom = Math.max(level.getMinY(), Math.min(bottom, source));
+				top = Math.min(level.getMaxY(), top);
 
-			if (top == Integer.MIN_VALUE) {
-				continue;
-			}
+				for (int y = top; y >= bottom && budget > 0 && visits > 0; y--) {
+					visits--;
+					used++;
 
-			int source = chunk.getSkyLightSources().getLowestSourceY(x & 15, z & 15);
-			bottom = Math.max(level.getMinY(), Math.min(bottom, source));
-			top = Math.min(level.getMaxY(), top);
+					this.pos.set(x, y, z);
+					if (chunk.getBlockState(this.pos).isAir()) {
+						// 空气换成空气不会改变任何光照结果。
+						continue;
+					}
 
-			for (int y = top; y >= bottom; y--) {
-				level.getLightEngine().checkBlock(pos.set(x, y, z));
-				budget--;
-			}
-		}
-
-		return budget;
-	}
-
-	private static List<Area> targets() {
-		List<Region> regions = SelectiveRenderingManager.blockRegions();
-
-		synchronized (LOCK) {
-			List<Area> targets = new ArrayList<>(regions.size() + RETIRED_AREAS.size());
-
-			for (Region region : regions) {
-				targets.addAll(region.areas());
-			}
-
-			for (Area region : RETIRED_AREAS) {
-				if (!targets.contains(region)) {
-					targets.add(region);
+					level.getLightEngine().checkBlock(this.pos);
+					budget--;
 				}
 			}
 
-			return targets;
+			return new int[] {budget, used};
 		}
 	}
 }

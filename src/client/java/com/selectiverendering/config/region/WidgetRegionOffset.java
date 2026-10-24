@@ -15,8 +15,8 @@ import fi.dy.masa.malilib.gui.widgets.WidgetListConfigOptionsBase;
 /** 「投影位移」一行，当前位移 (x, y, z) 和一个重置按钮。 */
 public final class WidgetRegionOffset extends WidgetConfigOption {
 	public WidgetRegionOffset(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 

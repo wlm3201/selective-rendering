@@ -19,8 +19,8 @@ public final class WidgetRegionTargets extends WidgetConfigOption {
 	private static final int LABEL_GAP = 4;
 
 	public WidgetRegionTargets(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 
@@ -38,7 +38,7 @@ public final class WidgetRegionTargets extends WidgetConfigOption {
 	}
 
 	private int addToggle(int x, int y, String key, RegionHandle handle,
-			Function<RegionOptions, Boolean> read, BiFunction<RegionOptions, Boolean, RegionOptions> write) {
+		Function<RegionOptions, Boolean> read, BiFunction<RegionOptions, Boolean, RegionOptions> write) {
 		String text = ModConfigs.text(key);
 		int textWidth = this.getStringWidth(text);
 

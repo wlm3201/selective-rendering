@@ -43,6 +43,14 @@ public final class RebuildScheduler {
 	/** 清除区段记录，重建全部区段并重算光照。 */
 	public static void rebuildChunks() {
 		HiddenSections.clear();
+
+		// 既然要全量重建，截流下来的四边形和已建好的缓冲都一起作废：
+		// 它们属于旧的配置，留着只会继续按旧透明度画，直到各自区段碰巧被重建。
+		RetainedTerrain.releaseAll();
+		TerrainTranslucency.clear();
+		// 这里不清 ProjectionLight：区段重新编译时会自己 ProjectionLight.invalidate() 让光照场重算，
+		// 直接清空会让投影在光照场算完之前整段消失几帧（prepare 里 usedField == null 就跳过）。
+
 		Platform.rebuildAll();
 		LightSuppression.relight();
 	}

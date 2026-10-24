@@ -46,8 +46,7 @@ public final class ModPresets {
 			SelectiveRenderingManager.getTransparency(),
 			SelectiveRenderingManager.isInvert(),
 			SelectiveRenderingManager.ruleSources(),
-			SelectiveRenderingManager.regionSources()
-		);
+			SelectiveRenderingManager.regionSources());
 	}
 
 	private static String nextName(List<Preset> presets) {

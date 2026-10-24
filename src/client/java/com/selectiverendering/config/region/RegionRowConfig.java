@@ -29,7 +29,6 @@ public final class RegionRowConfig extends ConfigBase<RegionRowConfig> implement
 		return "";
 	}
 
-
 	public Region region() {
 		return this.region;
 	}

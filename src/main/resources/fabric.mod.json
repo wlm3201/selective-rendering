@@ -1,38 +1,28 @@
 {
-	"schemaVersion": 1,
-	"id": "selective_rendering",
-	"version": "${version}",
-	"name": "Selective Rendering",
-	"description": "A client-side mod that makes any block translucent or hides it, based on \"region + block list\"",
-	"authors": [
-		"Ryan100c (original author)",
-		"wlm3201 (original porter)",
-		"Ryan100C (port fork author)"
-	],
-	"license": "CC-BY-NC-4.0",
-	"icon": "assets/selective_rendering/icon.png",
-	"environment": "client",
-	"entrypoints": {
-		"preLaunch": [
-			"com.selectiverendering.dev.DevPreLaunch"
-		],
-		"client": [
-			"com.selectiverendering.SelectiveRendering"
-		],
-		"modmenu": [
-			"com.selectiverendering.config.entry.ModMenuIntegration"
-		]
-	},
-	"mixins": [
-		{
-			"config": "selective-rendering.client.mixins.json",
-			"environment": "client"
-		}
-	],
-	"depends": {
-		"fabricloader": ">=0.19.0",
-		"java": ">=25",
-		"minecraft": "${minecraft_dependency}",
-		"malilib": "${malilib_dependency}"
-	}
+  "schemaVersion": 1,
+  "id": "selective_rendering",
+  "version": "${version}",
+  "name": "Selective Rendering",
+  "description": "A mod that makes specific block translucent or hidden based on \"region + block list\"",
+  "authors": ["Ryan100c (author)", "wlm3201 (porter)"],
+  "license": "CC-BY-NC-4.0",
+  "icon": "assets/selective_rendering/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "preLaunch": ["com.selectiverendering.dev.DevPreLaunch"],
+    "client": ["com.selectiverendering.SelectiveRendering"],
+    "modmenu": ["com.selectiverendering.config.entry.ModMenuIntegration"]
+  },
+  "mixins": [
+    {
+      "config": "selective-rendering.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "java": ">=25",
+    "minecraft": "${minecraft_dependency}",
+    "malilib": "${malilib_dependency}"
+  }
 }

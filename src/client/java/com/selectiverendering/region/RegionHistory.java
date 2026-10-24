@@ -8,9 +8,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * 选区的撤销 / 重做：每次选区列表变化（添加、删除、裁剪、合并、属性修改）前后各存一份快照。
- */
+/** 选区的撤销 / 重做：每次选区列表变化（添加、删除、裁剪、合并、属性修改）前后各存一份快照。 */
 public final class RegionHistory {
 	private static final int LIMIT = 64;
 	private static final long COALESCE_MILLIS = 1200L;
@@ -124,8 +122,7 @@ public final class RegionHistory {
 				SelectiveRenderingManager.selectedRegionId = exists ? selected : null;
 
 				SelectiveRenderingManager.commitAndRemember();
-			}
-			finally {
+			} finally {
 				restoring = false;
 			}
 

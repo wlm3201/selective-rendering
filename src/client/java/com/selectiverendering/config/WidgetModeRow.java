@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.selectiverendering.SelectiveRenderingManager.Mode;
 import com.selectiverendering.config.entrypoint.ModConfigs;
+import net.minecraft.network.chat.MutableComponent;
 import fi.dy.masa.malilib.config.IConfigBase;
 import fi.dy.masa.malilib.gui.GuiBase;
 import fi.dy.masa.malilib.gui.GuiConfigsBase.ConfigOptionWrapper;
@@ -19,8 +20,8 @@ public final class WidgetModeRow extends WidgetConfigOption {
 	private ModeDropdown dropdown;
 
 	public WidgetModeRow(int x, int y, int width, int height, int labelWidth, int configWidth,
-			ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
-			WidgetListConfigOptionsBase<?, ?> parent) {
+		ConfigOptionWrapper wrapper, int listIndex, IKeybindConfigGui host,
+		WidgetListConfigOptionsBase<?, ?> parent) {
 		super(x, y, width, height, labelWidth, configWidth, wrapper, listIndex, host, parent);
 	}
 
@@ -33,7 +34,16 @@ public final class WidgetModeRow extends WidgetConfigOption {
 		y += 1;
 
 		this.addLabel(x, y + 6, labelWidth, 8, 0xFFFFFFFF, mode.getConfigGuiDisplayName());
-		this.addConfigComment(x, y + 4, labelWidth, 12, mode.getCommentComponent());
+
+		// 没人调过 setCommentComponent，恒为 null；回退到 .comment.<name>，跟基类 WidgetConfigOption 一致。
+		String text = mode.getComment();
+		MutableComponent comment = mode.getCommentComponent();
+
+		if (comment != null) {
+			this.addConfigComment(x, y + 4, labelWidth, 12, comment);
+		} else if (text != null && !text.isEmpty()) {
+			this.addConfigComment(x, y + 4, labelWidth, 12, text);
+		}
 
 		int dropdownX = x + labelWidth + 10;
 		int resetX = dropdownX + configWidth + 2;

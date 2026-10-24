@@ -24,14 +24,13 @@ import org.spongepowered.asm.mixin.injection.At;
 @Mixin(MovingBlockFeatureRenderer.class)
 public class BlockFeatureRendererMixin {
 
-	@WrapOperation(method = "buildGroup", at = @At(value = "INVOKE", target =
-			"Lnet/minecraft/client/renderer/block/ModelBlockRenderer;" +
-					"tesselateBlock(Lnet/minecraft/client/renderer/block/" +
-					"BlockQuadOutput;FFFLnet/minecraft/client/renderer/block" +
-					"/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet" +
-					"/minecraft/world/level/block/state/BlockState;" +
-					"Lnet/minecraft/client/renderer/block/dispatch" +
-					"/BlockStateModel;J)V"), require = 0)
+	@WrapOperation(method = "buildGroup", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/block/ModelBlockRenderer;" +
+		"tesselateBlock(Lnet/minecraft/client/renderer/block/" +
+		"BlockQuadOutput;FFFLnet/minecraft/client/renderer/block" +
+		"/BlockAndTintGetter;Lnet/minecraft/core/BlockPos;Lnet" +
+		"/minecraft/world/level/block/state/BlockState;" +
+		"Lnet/minecraft/client/renderer/block/dispatch" +
+		"/BlockStateModel;J)V"), require = 0)
 	private void selectiveRendering$aroundTesselateBlock(
 		ModelBlockRenderer blockRenderer,
 		BlockQuadOutput output,
@@ -43,8 +42,7 @@ public class BlockFeatureRendererMixin {
 		BlockState state,
 		BlockStateModel model,
 		long seed,
-		Operation<Void> original
-	) {
+		Operation<Void> original) {
 		MovingBlockRenderContext.set(level instanceof ProjectedMovingBlock projected && projected.selectiveRendering$projected() ? 255 : AlphaGetter.getAlpha(state, pos, true));
 
 		try {
@@ -61,9 +59,7 @@ public class BlockFeatureRendererMixin {
 			, require = 0)
 	private VertexConsumer selectiveRendering$translucentBuffer(RenderType renderType, Operation<VertexConsumer> original) {
 			*/
-	@WrapOperation(method = "putBakedQuad", at = @At(value = "INVOKE", target =
-			"Lnet/minecraft/client/renderer/feature/MovingBlockFeatureRenderer;getVertexBuilder(Lnet/minecraft/client/renderer/rendertype/RenderType;)Lcom/mojang/blaze3d/vertex/VertexConsumer;")
-			, require = 0)
+	@WrapOperation(method = "putBakedQuad", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/feature/MovingBlockFeatureRenderer;getVertexBuilder(Lnet/minecraft/client/renderer/rendertype/RenderType;)Lcom/mojang/blaze3d/vertex/VertexConsumer;"), require = 0)
 	private VertexConsumer selectiveRendering$translucentBuffer(MovingBlockFeatureRenderer instance, RenderType renderType, Operation<VertexConsumer> original) {
 		int alpha = MovingBlockRenderContext.alpha();
 		if (alpha <= 0 || alpha >= 255) {
